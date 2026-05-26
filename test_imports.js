@@ -14,23 +14,23 @@ console.log('  - getCommandTag:', typeof getCommandTag);
 console.log('  - getAllCustomTags:', typeof getAllCustomTags);
 
 console.log('\n✅ Testing hide.js import...');
-import hideCmd from './commands/hide.js';
+import hideCmd from './commands/owner/hide.js';
 console.log('  - hide command:', hideCmd.name);
 
 console.log('\n✅ Testing show.js import...');
-import showCmd from './commands/show.js';
+import showCmd from './commands/owner/show.js';
 console.log('  - show command:', showCmd.name);
 
 console.log('\n✅ Testing settag.js import...');
-import settagCmd from './commands/settag.js';
+import settagCmd from './commands/owner/settag.js';
 console.log('  - settag command:', settagCmd.name);
 
 console.log('\n✅ Testing menuowner.js import...');
-import menuownerCmd from './commands/menuowner.js';
+import menuownerCmd from './commands/owner/menuowner.js';
 console.log('  - menuowner command:', menuownerCmd.name);
 
 console.log('\n✅ Testing menu.js import...');
-import menuCmd from './commands/menu.js';
+import menuCmd from './commands/utility/menu.js';
 console.log('  - menu command:', menuCmd.name);
 
 console.log('\n🎉 All imports successful!');

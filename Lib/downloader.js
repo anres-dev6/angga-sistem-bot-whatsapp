@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const YTDLP = path.join(__dirname, "yt-dlp.exe"); // Now in same Lib folder
 const DOWNLOAD_DIR = path.join(__dirname, "..", "download");
 
 // Ensure download directory exists
@@ -46,8 +45,9 @@ export function downloadMedia(url, onProgress = null) {
         }
 
         // Check if yt-dlp exists
-        if (!fs.existsSync(YTDLP)) {
-            return reject(new Error("yt-dlp.exe tidak ditemukan"));
+        const ytdlpCmd = global.ytdlpPath || 'yt-dlp';
+        if (ytdlpCmd.includes(path.sep) && !fs.existsSync(ytdlpCmd)) {
+            return reject(new Error("yt-dlp binary tidak ditemukan"));
         }
 
         const timestamp = Date.now();
@@ -64,7 +64,7 @@ export function downloadMedia(url, onProgress = null) {
             extraArgs = ' --extractor-args "twitter:api=syndication" --add-header "Accept-Language: en-US,en;q=0.9"';
         }
 
-        const cmd = `"${YTDLP}" -f "best[height<=480]/best" --no-playlist --no-warnings --no-check-certificate --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"${extraArgs} --retries 3 -o "${output}" "${url}"`;
+        const cmd = `"${ytdlpCmd}" -f "best[height<=480]/best" --no-playlist --no-warnings --no-check-certificate --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"${extraArgs} --retries 3 -o "${output}" "${url}"`;
 
         console.log(`[Downloader] Executing: ${platform}`);
 

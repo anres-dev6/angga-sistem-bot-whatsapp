@@ -10,6 +10,7 @@ import readline from "readline";
 import fs from "fs";
 import handleMessage from "./handler/message.js";
 import handleGroupParticipantsUpdate from "./handler/group.js";
+import { setupYtdlp } from "./utils/ytdlpSetup.js";
 import "./Lib/autodl_manager.js"; // Initialize AutoDL state on startup
 
 // Flag to prevent restart loop during pairing
@@ -33,8 +34,12 @@ async function ask(text) {
 
 async function startBot() {
 
+    // Setup yt-dlp binary
+    global.ytdlpPath = await setupYtdlp();
+
     // ============ BAGIAN 2: Auth State yang bener =============
-    const { state, saveCreds } = await useMultiFileAuthState('./auth');
+    const authDir = process.env.AUTH_DIR || './auth';
+    const { state, saveCreds } = await useMultiFileAuthState(authDir);
     // ===========================================================
 
     const { version } = await fetchLatestBaileysVersion();
@@ -71,58 +76,68 @@ async function startBot() {
             } else {
                 console.log(chalk.red("\n❌ Koneksi gagal saat pairing/pairing selesai."));
                 console.log(chalk.yellow("💡 Jika pairing berhasil, jalankan ulang: node index.js"));
-                console.log(chalk.yellow("💡 Jika gagal, hapus folder 'auth' dan coba lagi.\n"));
+                console.log(chalk.yellow(`💡 Jika gagal, hapus folder '${authDir}' dan coba lagi.\n`));
                 process.exit(0);
             }
         }
     });
 
-    // ============ BAGIAN 3: Pairing Code (PM2 Compatible) ============
+    // ============ BAGIAN 3: Pairing Code (Headless & PM2 Compatible) ============
     if (!sock.authState.creds.registered) {
+        const envPhoneNumber = process.env.PAIRING_NUMBER || process.env.BOT_NUMBER;
         const isInteractive = process.stdin.isTTY;
 
-        if (isInteractive) {
+        if (isInteractive || envPhoneNumber) {
             isPairing = true; // Set flag to true to prevent auto-restart loop
 
-            // Ask for phone number
-            const phoneNumber = await ask(chalk.cyan("Masukkan nomor BOT (62xxx): "));
+            let phoneNumber = envPhoneNumber;
+            if (!phoneNumber && isInteractive) {
+                phoneNumber = await ask(chalk.cyan("Masukkan nomor BOT (62xxx): "));
+            }
 
-            console.log(chalk.yellow("\n⏳ Requesting pairing code..."));
+            if (phoneNumber) {
+                const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+                console.log(chalk.yellow(`\n⏳ Requesting pairing code untuk nomor: ${cleanPhone}...`));
 
-            // Request pairing code immediately (wait for socket init)
-            setTimeout(async () => {
-                try {
-                    const code = await sock.requestPairingCode(phoneNumber.trim());
-                    console.log(chalk.green("\n==========================================="));
-                    console.log(chalk.green("PAIRING CODE: " + code));
-                    console.log(chalk.green("===========================================\n"));
-                    console.log(chalk.yellow("Masukkan code ini ke WhatsApp:"));
-                    console.log(chalk.yellow("1. Buka WhatsApp di HP"));
-                    console.log(chalk.yellow("2. Tap Menu > Linked Devices"));
-                    console.log(chalk.yellow("3. Tap 'Link a Device'"));
-                    console.log(chalk.yellow("4. Tap 'Link with phone number instead'"));
-                    console.log(chalk.yellow(`5. Masukkan code: ${code}\n`));
-
-                    // Write to file
+                // Request pairing code immediately (wait for socket init)
+                setTimeout(async () => {
                     try {
-                        fs.writeFileSync("pairing_code.txt", code);
-                        console.log(chalk.green("✅ Code juga disimpan di pairing_code.txt\n"));
-                    } catch (e) {
-                        console.error("Gagal tulis file pairing_code.txt", e);
+                        const code = await sock.requestPairingCode(cleanPhone);
+                        console.log(chalk.green("\n==========================================="));
+                        console.log(chalk.green("PAIRING CODE: " + code));
+                        console.log(chalk.green("===========================================\n"));
+                        console.log(chalk.yellow("Masukkan code ini ke WhatsApp:"));
+                        console.log(chalk.yellow("1. Buka WhatsApp di HP"));
+                        console.log(chalk.yellow("2. Tap Menu > Linked Devices"));
+                        console.log(chalk.yellow("3. Tap 'Link a Device'"));
+                        console.log(chalk.yellow("4. Tap 'Link with phone number instead'"));
+                        console.log(chalk.yellow(`5. Masukkan code: ${code}\n`));
+
+                        // Write to file
+                        try {
+                            fs.writeFileSync("pairing_code.txt", code);
+                            console.log(chalk.green("✅ Code juga disimpan di pairing_code.txt\n"));
+                        } catch (e) {
+                            console.error("Gagal tulis file pairing_code.txt", e);
+                        }
+                    } catch (err) {
+                        console.error(chalk.red("❌ Gagal request pairing code:"), err.message);
+                        isPairing = false; // Allow restart if request failed
                     }
-                } catch (err) {
-                    console.error(chalk.red("❌ Gagal request pairing code:"), err.message);
-                    isPairing = false; // Allow restart if request failed
-                }
-            }, 6000); // 6s delay for socket readiness
+                }, 6000); // 6s delay for socket readiness
+            } else {
+                console.log(chalk.red("❌ Nomor telepon tidak dimasukkan!"));
+                process.exit(1);
+            }
         } else {
             console.log(chalk.red(`⚠️  Bot belum login!`));
             console.log(chalk.yellow(`💡 Jalankan bot secara manual untuk input nomor pairing:`));
             console.log(chalk.cyan(`   node index.js`));
-            console.log(chalk.yellow(`\nAtau hapus folder 'auth' dan restart PM2.`));
+            console.log(chalk.yellow(`\nAtau atur environment variable PAIRING_NUMBER untuk pairing headless di Railway/Pterodactyl.`));
             process.exit(1);
         }
     }
+    // ===================================================================
     // ===================================================================
 
     // Pesan masuk → handler

@@ -17,7 +17,7 @@ loadCommands(COMMAND_DIR);
 let autobansModule = null;
 async function getAutobans() {
     if (!autobansModule) {
-        autobansModule = await import('../commands/autobans.js');
+        autobansModule = await import('../commands/owner/autobans.js');
     }
     return autobansModule;
 }
@@ -152,7 +152,7 @@ export default async function handleMessage(sock, msg) {
         console.log('[Handler] Body:', body);
         console.log('[Handler] isGroup:', isGroup);
 
-        const { isSafeModeEnabledForChat } = await import('../commands/modeaman.js');
+        const { isSafeModeEnabledForChat } = await import('../commands/owner/modeaman.js');
         if (isSafeModeEnabledForChat(from) && !isOwner) {
             console.log(`[Handler] Safe mode active for ${from} - ignoring non-owner message`);
             return;
@@ -909,7 +909,7 @@ export default async function handleMessage(sock, msg) {
             if (m.key.fromMe) return;
 
             try {
-                const cerdasModule = await import('../commands/cerdas.js');
+                const cerdasModule = await import('../commands/ai/cerdas.js');
                 const wasHandled = await cerdasModule.default.checkAnswer(sock, m, body);
                 if (wasHandled) return;
             } catch (error) {

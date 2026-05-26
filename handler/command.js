@@ -15,27 +15,40 @@ export async function loadCommands(commandDir) {
     commands.clear();
     aliases.clear();
 
-    const files = fs.readdirSync(commandDir).filter(file => file.endsWith('.js'));
+    // Helper function to recursively find all .js files
+    const getFilesRecursive = (dir) => {
+        let results = [];
+        if (!fs.existsSync(dir)) return results;
+        
+        const list = fs.readdirSync(dir);
+        list.forEach(file => {
+            const filePath = path.join(dir, file);
+            const stat = fs.statSync(filePath);
+            if (stat && stat.isDirectory()) {
+                results = results.concat(getFilesRecursive(filePath));
+            } else if (file.endsWith('.js')) {
+                results.push(filePath);
+            }
+        });
+        return results;
+    };
 
-    for (const file of files) {
+    const files = getFilesRecursive(commandDir);
+
+    for (const filePath of files) {
         try {
-            const filePath = path.join(commandDir, file);
             const fileUrl = pathToFileURL(filePath).href;
+            const fileBasename = path.basename(filePath);
 
             // Import the command file
-            // Using timestamp to bypass cache if needed (though dynamic import cache is tricky in ESM)
+            // Using timestamp to bypass cache if needed
             const imported = await import(`${fileUrl}?t=${Date.now()}`);
             const cmd = imported.default;
 
             if (!cmd) continue;
 
-            // If it's the old format (just a function), wrap it or skip?
-            // For now, let's assume we are migrating everything or supporting both temporarily?
-            // The prompt asks to "rombak" (refactor), so we aim for the new structure.
-            // But to avoid breaking valid old commands immediately, we might check type.
-
             // Standardize command object
-            const commandName = cmd.name || file.replace('.js', '');
+            const commandName = cmd.name || fileBasename.replace('.js', '');
 
             const commandObj = {
                 name: commandName,
@@ -54,7 +67,7 @@ export async function loadCommands(commandDir) {
             }
 
         } catch (e) {
-            console.error(chalk.red(`Failed to load command ${file}:`, e));
+            console.error(chalk.red(`Failed to load command ${filePath}:`, e));
         }
     }
 
