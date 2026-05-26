@@ -10,7 +10,6 @@ import readline from "readline";
 import fs from "fs";
 import handleMessage from "./handler/message.js";
 import handleGroupParticipantsUpdate from "./handler/group.js";
-import { setupYtdlp } from "./utils/ytdlpSetup.js";
 import "./Lib/autodl_manager.js"; // Initialize AutoDL state on startup
 
 // Flag to prevent restart loop during pairing
@@ -62,6 +61,7 @@ async function startBot() {
         if (connection === "open") {
             console.log(chalk.green("Bot berhasil connect ✔️"));
             isPairing = false; // Reset flag
+            startReminderScheduler(sock);
         } else if (connection === "close") {
             const shouldReconnect = (update.lastDisconnect?.error)?.output?.statusCode !== 401;
             const errorReason = update.lastDisconnect?.error;

@@ -6,6 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const REMINDER_FILE = path.join(__dirname, '../data/reminders.json');
+let schedulerStarted = false;
 
 // Pastikan folder data ada
 const dataDir = path.join(__dirname, '../data');
@@ -74,6 +75,8 @@ export function getUserReminders(sender) {
 
 // Start scheduler — dipanggil sekali saat bot start
 export function startReminderScheduler(sock) {
+    if (schedulerStarted) return;
+    schedulerStarted = true;
     console.log('[Reminder] Scheduler started');
 
     setInterval(async () => {
