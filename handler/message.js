@@ -1829,13 +1829,27 @@ export default async function handleMessage(sock, msg) {
         }
 
         // --- Run Command ---
-        await command.run(sock, m, args, {
-            text,
-            isOwner,
-            isGroup,
-            sender,
-            command: cmdName
-        });
+        try {
+            await command.run(sock, m, args, {
+                text,
+                isOwner,
+                isGroup,
+                sender,
+                command: cmdName
+            });
+        } catch (cmdErr) {
+            console.error(`[Command] Error running '${cmdName}':`, cmdErr);
+            // Send minimal error info to chat for debugging (owner only)
+            try {
+                const owners = loadOwners();
+                const senderNum = sender.split('@')[0].replace(/\D/g, '');
+                if (owners.includes(senderNum)) {
+                    await sock.sendMessage(from, { text: `⚠️ Error on command '${cmdName}': ${cmdErr.message}` }, { quoted: m });
+                }
+            } catch (e) {
+                console.error('[Command] Failed to report error to owner:', e);
+            }
+        }
 
     } catch (err) {
         console.log("Handler Error:", err);
