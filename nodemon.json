@@ -1,0 +1,20 @@
+{
+    "watch": [
+        "commands",
+        "handler",
+        "utils",
+        "index.js",
+        "config.js",
+        ".restart-trigger"
+    ],
+    "ext": "js,json",
+    "ignore": [
+        "node_modules",
+        "auth",
+        "logs",
+        "data/owners.json"
+    ],
+    "delay": 1000,
+    "verbose": true,
+    "restartable": "rs"
+}
