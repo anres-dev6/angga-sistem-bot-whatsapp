@@ -1835,6 +1835,7 @@ export default async function handleMessage(sock, msg) {
                 isOwner,
                 isGroup,
                 sender,
+                from,
                 command: cmdName
             });
         } catch (cmdErr) {

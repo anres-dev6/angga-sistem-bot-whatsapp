@@ -1,57 +1,60 @@
 import { addReminder, deleteReminder, getUserReminders } from '../Lib/reminder_manager.js';
 
 const toMono = (str) => str.split('').map(c => {
-    if (c >= 'a' && c <= 'z') return String.fromCodePoint(0x1D670 + (c.charCodeAt(0) - 97));
-    if (c >= 'A' && c <= 'Z') return String.fromCodePoint(0x1D656 + (c.charCodeAt(0) - 65));
-    if (c >= '0' && c <= '9') return String.fromCodePoint(0x1D7F6 + (c.charCodeAt(0) - 48));
+    const code = c.charCodeAt(0);
+    if (code >= 97 && code <= 122) return String.fromCodePoint(0x1D68A + (code - 97)); // a-z
+    if (code >= 65 && code <= 90) return String.fromCodePoint(0x1D670 + (code - 65));  // A-Z
+    if (code >= 48 && code <= 57) return String.fromCodePoint(0x1D7F6 + (code - 48));  // 0-9
     return c;
 }).join('');
 
 const LINE = '━━━━━━━━━━━━━━━━━━━━━';
 
 // Parse waktu dari args
-// Format: 10m, 2j, 1h, 08:30, 08:30-daily, 08:30-weekly
-function parseTime(timeStr) {
+// Format: 10m, 2j, 1h, 08:30, 08:30-daily, 08:30-weekly, dan kata bahasa Indonesia
+function parseTime(timeStr, forceTomorrow = false) {
     const now = Date.now();
 
-    // Format: Xm (menit)
-    const mMatch = timeStr.match(/^(\d+)m$/i);
-    if (mMatch) {
-        return { triggerAt: now + parseInt(mMatch[1]) * 60 * 1000, repeat: null };
+    // Match relative formats: e.g. 10m, 10menit, 2j, 2jam, 1hari, 30detik, 30s
+    const durationMatch = timeStr.match(/^(\d+)(m|menit|min|j|jam|hour|h|d|hari|day|s|detik|sec)$/i);
+    if (durationMatch) {
+        const val = parseInt(durationMatch[1]);
+        const unit = durationMatch[2].toLowerCase();
+
+        if (unit.startsWith('s') || unit === 'detik' || unit === 'sec') {
+            return { triggerAt: now + val * 1000, repeat: null };
+        }
+        if (unit.startsWith('m') || unit === 'menit' || unit === 'min') {
+            return { triggerAt: now + val * 60 * 1000, repeat: null };
+        }
+        if (unit.startsWith('j') || unit === 'jam' || unit === 'hour' || unit === 'h') {
+            return { triggerAt: now + val * 60 * 60 * 1000, repeat: null };
+        }
+        if (unit.startsWith('d') || unit === 'hari' || unit === 'day') {
+            return { triggerAt: now + val * 24 * 60 * 60 * 1000, repeat: null };
+        }
     }
 
-    // Format: Xj atau Xh (jam)
-    const hMatch = timeStr.match(/^(\d+)[jh]$/i);
-    if (hMatch) {
-        return { triggerAt: now + parseInt(hMatch[1]) * 60 * 60 * 1000, repeat: null };
-    }
-
-    // Format: Xd (hari)
-    const dMatch = timeStr.match(/^(\d+)d$/i);
-    if (dMatch) {
-        return { triggerAt: now + parseInt(dMatch[1]) * 24 * 60 * 60 * 1000, repeat: null };
-    }
-
-    // Format: HH:MM atau HH:MM-daily atau HH:MM-weekly
-    const clockMatch = timeStr.match(/^(\d{1,2}):(\d{2})(-daily|-weekly)?$/i);
+    // Format: HH:MM atau HH.MM (dengan opsi akhiran -daily atau -weekly)
+    const clockMatch = timeStr.match(/^(\d{1,2})[:.](\d{2})(-daily|-weekly)?$/i);
     if (clockMatch) {
         const [, hh, mm, repeatSuffix] = clockMatch;
         const repeat = repeatSuffix ? repeatSuffix.replace('-', '') : null;
 
-            const target = new Date();
-            target.setHours(parseInt(hh), parseInt(mm), 0, 0);
+        const target = new Date();
+        target.setHours(parseInt(hh), parseInt(mm), 0, 0);
 
-            // Kalau sudah lewat, jadwalkan ulang berdasarkan tipe repeat
-            if (target.getTime() <= now) {
-                if (repeat === 'weekly') {
-                    target.setDate(target.getDate() + 7);
-                } else {
-                    // default: next day
-                    target.setDate(target.getDate() + 1);
-                }
+        if (forceTomorrow) {
+            target.setDate(target.getDate() + 1);
+        } else if (target.getTime() <= now) {
+            if (repeat === 'weekly') {
+                target.setDate(target.getDate() + 7);
+            } else {
+                target.setDate(target.getDate() + 1);
             }
+        }
 
-            return { triggerAt: target.getTime(), repeat };
+        return { triggerAt: target.getTime(), repeat };
     }
 
     return null;
@@ -79,7 +82,10 @@ export default {
         private: false
     },
 
-    run: async (sock, m, args, { sender, from }) => {
+    run: async (sock, m, args, context) => {
+        // Fallback for context parameters if they are missing
+        const sender = context?.sender || m.sender || m.key.participant || m.participant;
+        const from = context?.from || m.key.remoteJid;
 
         const subCmd = args[0]?.toLowerCase();
 
@@ -152,14 +158,16 @@ export default {
                 `${toMono('cmd')} : ${toMono('.remind')}\n${LINE}\n\n` +
                 `${toMono('Format Waktu:')}\n` +
                 `  ⏱️  ${toMono('10m')}          » ${toMono('10 menit lagi')}\n` +
-                `  ⏱️  ${toMono('2j / 2h')}       » ${toMono('2 jam lagi')}\n` +
-                `  ⏱️  ${toMono('1d')}            » ${toMono('1 hari lagi')}\n` +
-                `  🕐  ${toMono('08:30')}         » ${toMono('jam 08.30 WIB')}\n` +
+                `  ⏱️  ${toMono('2j / 2jam')}     » ${toMono('2 jam lagi')}\n` +
+                `  ⏱️  ${toMono('1d / 1hari')}    » ${toMono('1 hari lagi')}\n` +
+                `  🕐  ${toMono('08:30 / 08.30')} » ${toMono('jam 08.30 WIB')}\n` +
+                `  🕐  ${toMono('besok 08:30')}   » ${toMono('besok jam 08.30 WIB')}\n` +
                 `  🔁  ${toMono('08:30-daily')}   » ${toMono('setiap hari 08.30')}\n` +
                 `  🔁  ${toMono('08:30-weekly')}  » ${toMono('setiap minggu')}\n\n` +
                 `${toMono('Contoh:')}\n` +
-                `  ${toMono('.remind 10m Minum obat')}\n` +
-                `  ${toMono('.remind 2j Meeting klien')}\n` +
+                `  ${toMono('.remind 10menit Minum obat')}\n` +
+                `  ${toMono('.remind 2jam Meeting klien')}\n` +
+                `  ${toMono('.remind besok 08:30 Sholat dhuha')}\n` +
                 `  ${toMono('.remind 08:30-daily Sholat subuh')}\n\n` +
                 `${LINE}\n` +
                 `💡 ${toMono('.remind list')}      » ${toMono('lihat semua')}\n` +
@@ -169,8 +177,18 @@ export default {
         }
 
         // ── .remind <waktu> <pesan> ───────────────────
-        const timeStr = args[0];
-        const message = args.slice(1).join(' ').trim();
+        let timeStr = args[0];
+        let message = args.slice(1).join(' ').trim();
+        let forceTomorrow = false;
+
+        // Support for "besok HH:MM" or "tomorrow HH:MM"
+        if (timeStr?.toLowerCase() === 'besok' || timeStr?.toLowerCase() === 'tomorrow') {
+            if (args[1] && /^(\d{1,2})[:.](\d{2})$/.test(args[1])) {
+                timeStr = args[1];
+                message = args.slice(2).join(' ').trim();
+                forceTomorrow = true;
+            }
+        }
 
         if (!message) {
             return sock.sendMessage(from, {
@@ -181,13 +199,13 @@ export default {
             }, { quoted: m.key ? m : undefined });
         }
 
-        const parsed = parseTime(timeStr);
+        const parsed = parseTime(timeStr, forceTomorrow);
 
         if (!parsed) {
             return sock.sendMessage(from, {
                 text:
                     `❌ ${toMono('Format waktu tidak dikenali: ' + timeStr)}\n\n` +
-                    `💡 ${toMono('Contoh: 10m, 2j, 08:30, 08:30-daily')}\n` +
+                    `💡 ${toMono('Contoh: 10m, 2jam, 08:30, besok 08:30')}\n` +
                     `💡 ${toMono('.remind help')} » ${toMono('lihat panduan lengkap')}`,
             }, { quoted: m.key ? m : undefined });
         }

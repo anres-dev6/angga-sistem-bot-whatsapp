@@ -89,9 +89,10 @@ export function startReminderScheduler(sock) {
                 // Kirim pesan reminder
                 try {
                     const toMono = (str) => str.split('').map(c => {
-                        if (c >= 'a' && c <= 'z') return String.fromCodePoint(0x1D670 + (c.charCodeAt(0) - 97));
-                        if (c >= 'A' && c <= 'Z') return String.fromCodePoint(0x1D656 + (c.charCodeAt(0) - 65));
-                        if (c >= '0' && c <= '9') return String.fromCodePoint(0x1D7F6 + (c.charCodeAt(0) - 48));
+                        const code = c.charCodeAt(0);
+                        if (code >= 97 && code <= 122) return String.fromCodePoint(0x1D68A + (code - 97)); // a-z
+                        if (code >= 65 && code <= 90) return String.fromCodePoint(0x1D670 + (code - 65));  // A-Z
+                        if (code >= 48 && code <= 57) return String.fromCodePoint(0x1D7F6 + (code - 48));  // 0-9
                         return c;
                     }).join('');
 
@@ -99,7 +100,9 @@ export function startReminderScheduler(sock) {
                         hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta'
                     });
 
+                    const userNumber = r.sender.split('@')[0];
                     const text =
+                        `🔔 Hai @${userNumber},\n\n` +
                         `⏰ ${toMono('REMINDER!')}\n` +
                         `━━━━━━━━━━━━━━━━━━━━━\n` +
                         `📌 ${toMono(r.message)}\n` +
@@ -107,16 +110,23 @@ export function startReminderScheduler(sock) {
                         (r.repeat ? `🔁 ${toMono('Berulang: ' + r.repeat)}\n` : '') +
                         `━━━━━━━━━━━━━━━━━━━━━`;
 
-                    await sock.sendMessage(r.from, { text }, { mentions: [r.sender] });
+                    await sock.sendMessage(r.from, { text, mentions: [r.sender] });
                 } catch (err) {
                     console.error('[Reminder] Send error:', err.message);
                 }
 
-                // Jika repeat, jadwalkan ulang
+                // Jika repeat, jadwalkan ulang ke masa depan agar tidak loop
+                let nextTrigger = r.triggerAt;
                 if (r.repeat === 'daily') {
-                    remaining.push({ ...r, triggerAt: r.triggerAt + 24 * 60 * 60 * 1000 });
+                    while (nextTrigger <= now) {
+                        nextTrigger += 24 * 60 * 60 * 1000;
+                    }
+                    remaining.push({ ...r, triggerAt: nextTrigger });
                 } else if (r.repeat === 'weekly') {
-                    remaining.push({ ...r, triggerAt: r.triggerAt + 7 * 24 * 60 * 60 * 1000 });
+                    while (nextTrigger <= now) {
+                        nextTrigger += 7 * 24 * 60 * 60 * 1000;
+                    }
+                    remaining.push({ ...r, triggerAt: nextTrigger });
                 }
                 // Kalau tidak repeat → hapus (tidak di-push)
             } else {
