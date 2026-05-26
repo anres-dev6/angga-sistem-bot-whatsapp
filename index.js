@@ -10,6 +10,8 @@ import readline from "readline";
 import fs from "fs";
 import handleMessage from "./handler/message.js";
 import handleGroupParticipantsUpdate from "./handler/group.js";
+import { setupYtdlp } from "./utils/ytdlpSetup.js";
+import { startReminderScheduler } from "./Lib/reminder_manager.js";
 import "./Lib/autodl_manager.js"; // Initialize AutoDL state on startup
 
 // Flag to prevent restart loop during pairing
