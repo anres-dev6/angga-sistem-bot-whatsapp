@@ -163,16 +163,9 @@ export default async function handleMessage(sock, msg) {
         console.log('[Handler] Body:', body);
         console.log('[Handler] isGroup:', isGroup);
 
-        const { isSelfModeEnabled, isSelfModeDisabledForChat } = await import('../Lib/self_manager.js');
-        const selfModeOff = isGroup && isSelfModeDisabledForChat(from);
-
-        const { isSafeModeEnabledForChat } = await import('../commands/owner/modeaman.js');
-        if (!selfModeOff && isSafeModeEnabledForChat(from) && !isOwner) {
-            console.log(`[Handler] Safe mode active for ${from} - ignoring non-owner message`);
-            return;
-        }
-
-        if (isGroup && isSelfModeEnabled(from) && !isOwner) {
+        const { isSelfModeEnabled } = await import('../Lib/self_manager.js');
+        // If self mode is enabled (globally or for this group), only owner messages are processed
+        if (isSelfModeEnabled(from) && !isOwner) {
             console.log(`[Handler] Self mode active for ${from} - ignoring non-owner message`);
             return;
         }
@@ -1733,7 +1726,6 @@ export default async function handleMessage(sock, msg) {
                                 } else {
                                     await sock.sendMessage(from, { text: `❌ *Gagal download!*\n\n⚠️ ${err.message}` });
                                 }
-                                return;
                             }
                         }
                     }

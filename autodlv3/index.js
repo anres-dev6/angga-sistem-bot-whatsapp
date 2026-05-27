@@ -103,11 +103,11 @@ export async function handler(m, { sock }) {
         console.error('[AutoDL V3] Error:', e);
         if (msg) {
             await sock.sendMessage(from, {
-                text: `❌ AutoDL V3 Error: ${e.message}`,
+                text: `⚠️ AutoDL V3 gagal, mencoba engine cadangan...\n\n${e.message}`,
                 edit: msg.key
             });
         }
-        return true;
+        return false;
     }
 
     return false;

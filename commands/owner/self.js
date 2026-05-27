@@ -2,9 +2,9 @@ import { enableSelfMode, disableSelfMode, isSelfModeEnabled } from '../../Lib/se
 
 export default {
     name: 'self',
-    aliases: ['selfmode', 'public'],
+    aliases: ['selfmode', 'public', 'openm', 'safem', 'safemode'],
     tags: ['owner'],
-    description: 'Atur bot merespon anggota grup atau hanya owner',
+    description: 'Atur bot merespon anggota grup atau hanya owner (menggantikan modeaman/openm)',
     access: {
         owner: true,
         group: false,
