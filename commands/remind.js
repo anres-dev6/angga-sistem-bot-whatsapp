@@ -10,39 +10,59 @@ const toMono = (str) => str.split('').map(c => {
 
 const LINE = '━━━━━━━━━━━━━━━━━━━━━';
 
-// Parse waktu dari args
-// Format: 10m, 2j, 1h, 08:30, 08:30-daily, 08:30-weekly, dan kata bahasa Indonesia
+/**
+ * Smart time parser dengan support m/h/d dan lokalisasi
+ * Format: 10m, 2h, 1d, 10menit, 2jam, 1hari, 30detik, 30s
+ *         HH:MM, HH.MM, besok HH:MM, HH:MM-daily, HH:MM-weekly
+ */
 function parseTime(timeStr, forceTomorrow = false) {
-    const now = Date.now();
+    if (!timeStr || typeof timeStr !== 'string') return null;
 
-    // Match relative formats: e.g. 10m, 10menit, 2j, 2jam, 1hari, 30detik, 30s
-    const durationMatch = timeStr.match(/^(\d+)(m|menit|min|j|jam|hour|h|d|hari|day|s|detik|sec)$/i);
+    const now = Date.now();
+    timeStr = timeStr.toLowerCase().trim();
+
+    // Match relative formats dengan regex yang lebih fleksibel
+    // Support: 10m, 10min, 10menit, 2h, 2hour, 2jam, 1d, 1day, 1hari, 30s, 30sec, 30detik
+    const durationMatch = timeStr.match(/^(\d+)\s*(m|min|menit|h|hour|jam|d|day|hari|s|sec|detik)$/i);
     if (durationMatch) {
         const val = parseInt(durationMatch[1]);
         const unit = durationMatch[2].toLowerCase();
 
-        if (unit.startsWith('s') || unit === 'detik' || unit === 'sec') {
+        if (unit === 's' || unit === 'sec' || unit === 'detik') {
             return { triggerAt: now + val * 1000, repeat: null };
         }
-        if (unit.startsWith('m') || unit === 'menit' || unit === 'min') {
+        if (unit === 'm' || unit === 'min' || unit === 'menit') {
             return { triggerAt: now + val * 60 * 1000, repeat: null };
         }
-        if (unit.startsWith('j') || unit === 'jam' || unit === 'hour' || unit === 'h') {
+        if (unit === 'h' || unit === 'hour' || unit === 'jam') {
             return { triggerAt: now + val * 60 * 60 * 1000, repeat: null };
         }
-        if (unit.startsWith('d') || unit === 'hari' || unit === 'day') {
+        if (unit === 'd' || unit === 'day' || unit === 'hari') {
             return { triggerAt: now + val * 24 * 60 * 60 * 1000, repeat: null };
         }
     }
 
-    // Format: HH:MM atau HH.MM (dengan opsi akhiran -daily atau -weekly)
-    const clockMatch = timeStr.match(/^(\d{1,2})[:.](\d{2})(-daily|-weekly)?$/i);
+    // Format jam: HH:MM, HH.MM dengan optional repeat suffix
+    const clockMatch = timeStr.match(/^(\d{1,2})[:.](\d{2})(?:\s*-\s*(daily|weekly|harian|mingguan))?$/i);
     if (clockMatch) {
         const [, hh, mm, repeatSuffix] = clockMatch;
-        const repeat = repeatSuffix ? repeatSuffix.replace('-', '') : null;
+        let repeat = null;
+        
+        if (repeatSuffix) {
+            const repeatLower = repeatSuffix.toLowerCase();
+            repeat = (repeatLower === 'daily' || repeatLower === 'harian') ? 'daily' : 
+                     (repeatLower === 'weekly' || repeatLower === 'mingguan') ? 'weekly' : null;
+        }
 
         const target = new Date();
-        target.setHours(parseInt(hh), parseInt(mm), 0, 0);
+        const hours = parseInt(hh);
+        const minutes = parseInt(mm);
+
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+            return null; // Invalid time
+        }
+
+        target.setHours(hours, minutes, 0, 0);
 
         if (forceTomorrow) {
             target.setDate(target.getDate() + 1);
@@ -58,6 +78,41 @@ function parseTime(timeStr, forceTomorrow = false) {
     }
 
     return null;
+}
+
+/**
+ * Pisahkan format time dan message dari args
+ * Return: { timeStr, message }
+ */
+function smartParsing(args) {
+    if (!args || args.length === 0) return { timeStr: null, message: null };
+
+    const firstArg = args[0].toLowerCase();
+    
+    // Check if first arg is time pattern
+    const isTimeFormat = /^(\d+\s*(m|min|menit|h|hour|jam|d|day|hari|s|sec|detik))$/i.test(firstArg) ||
+                         /^(\d{1,2}[:.](\d{2}))/.test(firstArg) ||
+                         firstArg === 'besok' || firstArg === 'tomorrow';
+
+    if (!isTimeFormat) {
+        return { timeStr: null, message: null };
+    }
+
+    // Handle "besok" case
+    if (firstArg === 'besok' || firstArg === 'tomorrow') {
+        if (args.length >= 2 && /^(\d{1,2}[:.](\d{2}))/.test(args[1])) {
+            const timeStr = args[1];
+            const message = args.slice(2).join(' ').trim();
+            return { timeStr, message, forceTomorrow: true };
+        }
+        return { timeStr: null, message: null };
+    }
+
+    // For regular time format, extract time and message
+    const timeStr = args[0];
+    const message = args.slice(1).join(' ').trim();
+    
+    return { timeStr, message, forceTomorrow: false };
 }
 
 // Format ms ke teks singkat
@@ -83,14 +138,13 @@ export default {
     },
 
     run: async (sock, m, args, context) => {
-        // Fallback for context parameters if they are missing
         const sender = context?.sender || m.sender || m.key.participant || m.participant;
         const from = context?.from || m.key.remoteJid;
 
         const subCmd = args[0]?.toLowerCase();
 
         // ── .remind list ──────────────────────────────
-        if (subCmd === 'list' || subCmd === 'ls') {
+        if (subCmd === 'list' || subCmd === 'ls' || subCmd === 'daftar') {
             const reminders = getUserReminders(sender);
 
             if (reminders.length === 0) {
@@ -177,24 +231,28 @@ export default {
         }
 
         // ── .remind <waktu> <pesan> ───────────────────
-        let timeStr = args[0];
-        let message = args.slice(1).join(' ').trim();
-        let forceTomorrow = false;
+        // Gunakan smart parsing untuk extract time dan message
+        const { timeStr, message, forceTomorrow } = smartParsing(args);
 
-        // Support for "besok HH:MM" or "tomorrow HH:MM"
-        if (timeStr?.toLowerCase() === 'besok' || timeStr?.toLowerCase() === 'tomorrow') {
-            if (args[1] && /^(\d{1,2})[:.](\d{2})$/.test(args[1])) {
-                timeStr = args[1];
-                message = args.slice(2).join(' ').trim();
-                forceTomorrow = true;
-            }
+        if (!timeStr) {
+            return sock.sendMessage(from, {
+                text:
+                    `❌ ${toMono('Format salah!')}\n\n` +
+                    `${toMono('Format yang benar:')}\n` +
+                    `${toMono('.remind 1m alasan (1 menit)')}\n` +
+                    `${toMono('.remind 2h alasan (2 jam)')}\n` +
+                    `${toMono('.remind 3d alasan (3 hari)')}\n` +
+                    `${toMono('.remind 08:30 alasan (jam 08:30)')}\n\n` +
+                    `💡 ${toMono('.remind help')} » ${toMono('lihat panduan lengkap')}`,
+            }, { quoted: m.key ? m : undefined });
         }
 
-        if (!message) {
+        if (!message || message.length === 0) {
             return sock.sendMessage(from, {
                 text:
                     `❌ ${toMono('Pesan reminder kosong!')}\n\n` +
                     `💡 ${toMono('.remind 10m Minum obat')}\n` +
+                    `💡 ${toMono('.remind 2h Meeting klien')}\n` +
                     `💡 ${toMono('.remind help')} » ${toMono('lihat panduan')}`,
             }, { quoted: m.key ? m : undefined });
         }
@@ -205,7 +263,7 @@ export default {
             return sock.sendMessage(from, {
                 text:
                     `❌ ${toMono('Format waktu tidak dikenali: ' + timeStr)}\n\n` +
-                    `💡 ${toMono('Contoh: 10m, 2jam, 08:30, besok 08:30')}\n` +
+                    `💡 ${toMono('Contoh: 10m, 2h, 1d, 08:30, besok 08:30')}\n` +
                     `💡 ${toMono('.remind help')} » ${toMono('lihat panduan lengkap')}`,
             }, { quoted: m.key ? m : undefined });
         }
