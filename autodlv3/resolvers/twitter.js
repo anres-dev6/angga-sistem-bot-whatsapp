@@ -1,53 +1,83 @@
-import fetch from '../utils/fetch.js';
-import * as cheerio from 'cheerio';
+import fetch from 'node-fetch';
 
 export default async function twitter(url, ctx) {
+    // Strategy 1: Twitter/X Syndication API
     try {
-        // Twitter/X scraping is notoriously hard without API or specialized tools (like syndication API).
-        // Since V2 uses a robust method via ab-downloader, and V1 uses yt-dlp.
-        // For V3 "Pure Scraper", we can try the syndication URL trick or similar.
-
-        // Syndication API trick (often used by yt-dlp internals)
         const tweetId = url.match(/(?:status|statuses)\/(\d+)/)?.[1];
-        if (!tweetId) throw new Error('Invalid Twitter URL');
+        if (!tweetId) throw new Error('Invalid Twitter/X URL - no tweet ID found');
 
-        const apiUrl = `https://cdn.syndication.twimg.com/tweet-result?id=${tweetId}&lang=en`;
+        console.log('[AutoDL V3 - Twitter] Tweet ID:', tweetId);
 
-        const res = await fetch(apiUrl);
-        if (!res.ok) throw new Error(`Twitter API Error: ${res.status}`);
+        const apiUrl = `https://cdn.syndication.twimg.com/tweet-result?id=${tweetId}&lang=en&token=`;
+        const res = await fetch(apiUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json'
+            }
+        });
 
-        const json = await res.json();
+        if (res.ok) {
+            const json = await res.json();
 
-        // Extract video
-        const video = json.video;
-        if (video && video.variants) {
-            // Get best quality
-            const bestVariant = video.variants
-                .filter(v => v.content_type === 'video/mp4')
-                .sort((a, b) => b.bitrate - a.bitrate)[0];
+            // Video
+            if (json.video?.variants) {
+                const best = json.video.variants
+                    .filter(v => v.content_type === 'video/mp4')
+                    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+                if (best) {
+                    return { type: 'video', url: best.url, filename: `twitter_${tweetId}.mp4` };
+                }
+            }
 
-            if (bestVariant) {
+            // Photos
+            if (json.photos?.length > 0) {
                 return {
-                    type: 'video',
-                    url: bestVariant.url,
-                    filename: `twitter_${tweetId}.mp4`
+                    type: 'image-slide',
+                    images: json.photos.map(p => p.url),
+                    private: false
                 };
             }
-        }
 
-        // Extract Photos
-        if (json.photos) {
-            const images = json.photos.map(p => p.url);
+            // mediaDetails fallback
+            if (json.mediaDetails?.length > 0) {
+                const media = json.mediaDetails[0];
+                if (media.video_info?.variants) {
+                    const best = media.video_info.variants
+                        .filter(v => v.content_type === 'video/mp4')
+                        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+                    if (best) {
+                        return { type: 'video', url: best.url, filename: `twitter_${tweetId}.mp4` };
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[AutoDL V3 - Twitter] Syndication API failed:', e.message);
+    }
+
+    // Strategy 2: twitsave fallback API
+    try {
+        const tweetId = url.match(/(?:status|statuses)\/(\d+)/)?.[1];
+        const apiUrl = `https://twitsave.com/info?url=${encodeURIComponent(url)}`;
+        const res = await fetch(apiUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+        const text = await res.text();
+
+        // Extract download URL from twitsave response
+        const match = text.match(/href="(https:\/\/video\.twimg\.com[^"]+)"/);
+        if (match?.[1]) {
             return {
-                type: 'image-slide',
-                images: images,
-                private: false
+                type: 'video',
+                url: match[1],
+                filename: `twitter_${tweetId || Date.now()}.mp4`
             };
         }
-
-        throw new Error('No media found in tweet.');
-
-    } catch (err) {
-        throw new Error(`Twitter Scraper Error: ${err.message}`);
+    } catch (e) {
+        console.warn('[AutoDL V3 - Twitter] twitsave fallback failed:', e.message);
     }
+
+    throw new Error('Twitter/X: Gagal download. Tweet mungkin private atau media tidak ada.');
 }

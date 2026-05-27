@@ -13,6 +13,17 @@ if (!fs.existsSync(DOWNLOAD_DIR)) {
     fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 }
 
+// Auto-detect yt-dlp binary path (prefer local Lib/yt-dlp.exe on Windows)
+function getYtdlpPath() {
+    if (global.ytdlpPath) return global.ytdlpPath;
+    const localPath = path.join(__dirname, 'yt-dlp.exe');
+    if (fs.existsSync(localPath)) {
+        global.ytdlpPath = localPath;
+        return localPath;
+    }
+    return 'yt-dlp';
+}
+
 /**
  * Detect platform from URL
  */
@@ -44,27 +55,25 @@ export function downloadMedia(url, onProgress = null) {
             return reject(new Error("Platform tidak didukung. Hanya YouTube, Instagram, Facebook, dan Douyin."));
         }
 
-        // Check if yt-dlp exists
-        const ytdlpCmd = global.ytdlpPath || 'yt-dlp';
+        const ytdlpCmd = getYtdlpPath();
         if (ytdlpCmd.includes(path.sep) && !fs.existsSync(ytdlpCmd)) {
-            return reject(new Error("yt-dlp binary tidak ditemukan"));
+            return reject(new Error("yt-dlp binary tidak ditemukan. Pastikan yt-dlp.exe ada di folder Lib/"));
         }
 
         const timestamp = Date.now();
         const output = path.join(DOWNLOAD_DIR, `${platform}_${timestamp}.%(ext)s`);
 
-        // Build command - BALANCED: Stable + Fast
-        // -f "best[height<=480]" = max 480p (good quality, reasonable size)
-        // --no-playlist = don't download playlists
-        // --no-warnings = reduce output
-        // --retries 3 = retry 3 times if fail
-        // Specific args for Twitter to bypass login/JSON errors
+        // Build platform-specific args
         let extraArgs = "";
         if (platform === "twitter") {
-            extraArgs = ' --extractor-args "twitter:api=syndication" --add-header "Accept-Language: en-US,en;q=0.9"';
+            extraArgs = ' --extractor-args "twitter:api=syndication"';
+        } else if (platform === "instagram") {
+            extraArgs = ' --add-header "Referer: https://www.instagram.com/"';
+        } else if (platform === "tiktok") {
+            extraArgs = ' --add-header "Referer: https://www.tiktok.com/"';
         }
 
-        const cmd = `"${ytdlpCmd}" -f "best[height<=480]/best" --no-playlist --no-warnings --no-check-certificate --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"${extraArgs} --retries 3 -o "${output}" "${url}"`;
+        const cmd = `"${ytdlpCmd}" -f "best[height<=720]/best" --no-playlist --no-warnings --no-check-certificate --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"${extraArgs} --retries 3 --socket-timeout 30 -o "${output}" "${url}"`;
 
         console.log(`[Downloader] Executing: ${platform}`);
 
