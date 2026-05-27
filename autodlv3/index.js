@@ -15,11 +15,11 @@ export async function handler(m, { sock }) {
 
     // Extract URL from message text
     const url = text.match(/https?:\/\/\S+/)?.[0];
-    if (!url) return;
+    if (!url) return false;
 
     // Check support first
     const { detectPlatform } = await import('./engine/detect.js');
-    if (!detectPlatform(url)) return; // Pass back to V1/V2 if not supported by V3
+    if (!detectPlatform(url)) return false; // Pass back to V1/V2 if not supported by V3
 
     console.log('[AutoDL V3] Processing URL:', url);
 
@@ -29,7 +29,7 @@ export async function handler(m, { sock }) {
 
         const result = await universalEngine(url, { m });
 
-        if (!result) return; // Should not happen if detectPlatform passed, unless resolver failed
+        if (!result) return false; // Should not happen if detectPlatform passed, unless resolver failed
 
         // 🖼️ TikTok slide → PRIVATE
         if (result.type === 'image-slide') {
@@ -50,7 +50,7 @@ export async function handler(m, { sock }) {
                     caption: `Slide ${i + 1}/${result.images.length}`
                 });
             }
-            return;
+            return true;
         }
 
         // 🎥 Video
@@ -97,6 +97,7 @@ export async function handler(m, { sock }) {
 
             await sock.sendMessage(from, { text: '✅ Selesai!', edit: msg.key });
         }
+        return true;
 
     } catch (e) {
         console.error('[AutoDL V3] Error:', e);
@@ -106,5 +107,8 @@ export async function handler(m, { sock }) {
                 edit: msg.key
             });
         }
+        return true;
     }
+
+    return false;
 }

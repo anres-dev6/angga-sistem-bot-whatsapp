@@ -147,14 +147,33 @@ export default async function handleMessage(sock, msg) {
         // Load owners from JSON file
         const owners = loadOwners();
         const isOwner = owners.includes(senderNumber);
+        let isAdmin = false;
+
+        if (isGroup) {
+            try {
+                const metadata = await sock.groupMetadata(from);
+                const participant = metadata.participants.find(p => p.id === sender);
+                isAdmin = !!participant?.admin;
+            } catch (error) {
+                console.error('[Handler] Failed to check admin status:', error.message);
+            }
+        }
 
         console.log('[Handler] Message received from:', from);
         console.log('[Handler] Body:', body);
         console.log('[Handler] isGroup:', isGroup);
 
+        const { isSelfModeEnabled, isSelfModeDisabledForChat } = await import('../Lib/self_manager.js');
+        const selfModeOff = isGroup && isSelfModeDisabledForChat(from);
+
         const { isSafeModeEnabledForChat } = await import('../commands/owner/modeaman.js');
-        if (isSafeModeEnabledForChat(from) && !isOwner) {
+        if (!selfModeOff && isSafeModeEnabledForChat(from) && !isOwner) {
             console.log(`[Handler] Safe mode active for ${from} - ignoring non-owner message`);
+            return;
+        }
+
+        if (isGroup && isSelfModeEnabled(from) && !isOwner) {
+            console.log(`[Handler] Self mode active for ${from} - ignoring non-owner message`);
             return;
         }
 
@@ -1556,7 +1575,8 @@ export default async function handleMessage(sock, msg) {
                     console.log('[AutoDL V3] Importing handler...');
                     const { handler } = await import('../autodlv3/index.js');
                     console.log('[AutoDL V3] Calling handler...');
-                    await handler(m, { sock });
+                    const handled = await handler(m, { sock });
+                    if (handled) return;
                 } catch (e) {
                     console.error('[AutoDL V3] Handler Error:', e);
                 }
@@ -1701,8 +1721,7 @@ export default async function handleMessage(sock, msg) {
                                     });
                                 }
 
-                                // Do NOT return here, to allow AutoDL V1 to run if enabled as per user request
-                                // return;
+                                return;
 
                             } catch (err) {
                                 console.error(`[AutoDL V2] ${urlInfo.platformName} Error:`, err);
@@ -1834,6 +1853,7 @@ export default async function handleMessage(sock, msg) {
                 text,
                 isOwner,
                 isGroup,
+                isAdmin,
                 sender,
                 from,
                 command: cmdName
