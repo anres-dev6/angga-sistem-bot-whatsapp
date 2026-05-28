@@ -2,6 +2,7 @@ import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from 'url';
+import axios from 'axios';
 import { getYtdlpPath, getYtdlpBaseArgs } from '../utils/ytdlpBinary.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -100,6 +101,14 @@ export function downloadMedia(url, onProgress = null) {
                 console.error('[Downloader] Exit code:', code);
                 console.error('[Downloader] Error output:', errorOutput);
 
+                // Check if it's a Python 3 not found error
+                if (errorOutput.includes('python3') || errorOutput.includes('No such file or directory')) {
+                    console.log('[Downloader] Python 3 not available, attempting API fallback for TikTok...');
+                    if (platform === 'tiktok') {
+                        return fallbackToTikTokAPI(url, resolve, reject);
+                    }
+                }
+
                 // Parse common errors
                 if (errorOutput.includes('Private video')) {
                     return reject(new Error('Video/Post private'));
@@ -158,6 +167,58 @@ export function downloadMedia(url, onProgress = null) {
             }
         });
     });
+}
+
+/**
+ * Fallback to TikTok API when Python 3 is not available
+ */
+async function fallbackToTikTokAPI(url, resolve, reject) {
+    try {
+        console.log('[Downloader] Trying TikTok API (TikWM)...');
+        
+        const response = await axios.get(`https://www.tikwm.com/api/`, {
+            params: { url: url },
+            timeout: 30000
+        });
+
+        if (response.data?.code === 0 && response.data?.data?.play) {
+            const videoUrl = response.data.data.play;
+            const title = response.data.data.title || "TikTok Video";
+            
+            console.log('[Downloader] TikWM API success, downloading video...');
+            
+            const videoResponse = await axios.get(videoUrl, {
+                responseType: 'arraybuffer',
+                timeout: 60000,
+                maxContentLength: 100 * 1024 * 1024
+            });
+
+            const videoBuffer = Buffer.from(videoResponse.data);
+            const fileSizeMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
+
+            if (videoBuffer.length > 100 * 1024 * 1024) {
+                return reject(new Error(`File terlalu besar (${fileSizeMB}MB). Maksimal 100MB.`));
+            }
+
+            const timestamp = Date.now();
+            const filePath = path.join(DOWNLOAD_DIR, `tiktok_${timestamp}.mp4`);
+            
+            fs.writeFileSync(filePath, videoBuffer);
+
+            resolve({
+                platform: 'tiktok',
+                filePath: filePath,
+                title: title.substring(0, 100),
+                size: fileSizeMB,
+                source: 'tikwm_api'
+            });
+        } else {
+            throw new Error('TikWM API response invalid');
+        }
+    } catch (err) {
+        console.error('[Downloader] TikTok API fallback failed:', err.message);
+        reject(new Error('Gagal download menggunakan yt-dlp dan API fallback. Silakan gunakan AutoDL V2.'));
+    }
 }
 
 /**
