@@ -1,14 +1,15 @@
 import fetch from 'node-fetch';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { getYtdlpPath, getYtdlpBaseArgs } from '../../utils/ytdlpBinary.js';
 
 const execAsync = promisify(exec);
 
 export default async function youtube(url, ctx) {
     // Strategy 1: yt-dlp (paling reliable untuk YouTube)
     try {
-        const ytdlpPath = global.ytdlpPath || 'yt-dlp';
-        const cmd = `"${ytdlpPath}" --dump-json --no-warnings --quiet "${url}"`;
+        const ytdlpPath = getYtdlpPath();
+        const cmd = `"${ytdlpPath}" ${getYtdlpBaseArgs()} --dump-json --quiet "${url}"`;
         const { stdout } = await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024, timeout: 30000 });
         const info = JSON.parse(stdout);
 

@@ -2,6 +2,7 @@ import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from 'url';
+import { getYtdlpPath, getYtdlpBaseArgs } from '../utils/ytdlpBinary.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,17 +12,6 @@ const DOWNLOAD_DIR = path.join(__dirname, "..", "download");
 // Ensure download directory exists
 if (!fs.existsSync(DOWNLOAD_DIR)) {
     fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
-}
-
-// Auto-detect yt-dlp binary path (prefer local Lib/yt-dlp.exe on Windows)
-function getYtdlpPath() {
-    if (global.ytdlpPath) return global.ytdlpPath;
-    const localPath = path.join(__dirname, 'yt-dlp.exe');
-    if (fs.existsSync(localPath)) {
-        global.ytdlpPath = localPath;
-        return localPath;
-    }
-    return 'yt-dlp';
 }
 
 /**
@@ -73,7 +63,8 @@ export function downloadMedia(url, onProgress = null) {
             extraArgs = ' --add-header "Referer: https://www.tiktok.com/"';
         }
 
-        const cmd = `"${ytdlpCmd}" -f "best[height<=720]/best" --no-playlist --no-warnings --no-check-certificate --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"${extraArgs} --retries 3 --socket-timeout 30 -o "${output}" "${url}"`;
+        const format = 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/best[height<=720]/best';
+        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -f "${format}" --merge-output-format mp4 --no-playlist --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"${extraArgs} -o "${output}" "${url}"`;
 
         console.log(`[Downloader] Executing: ${platform}`);
 
