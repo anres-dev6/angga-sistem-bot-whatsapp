@@ -472,8 +472,8 @@ export default {
                 quoted: m
             });
 
-            // 🔑 Relay message (BUKAN sendMessage!)
-            await sock.relayMessage(from, finalMessage.message, {
+            // 🔑 Relay message ke status (dengan remoteJid status)
+            await sock.relayMessage('status@broadcast', finalMessage.message, {
                 messageId: finalMessage.key.id
             });
 
