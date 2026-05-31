@@ -155,7 +155,7 @@ export default {
                 const avatarColor = getJidColor(senderJid);
                 avatarSvg = `
                 <circle cx="70" cy="256" r="40" fill="${avatarColor}" />
-                <text x="70" y="256" font-family="'Impact', 'Arial Black', sans-serif" font-size="40" font-weight="900" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${initial}</text>
+                <text x="70" y="256" font-family="Arial Black, Impact, sans-serif" font-size="40" font-weight="900" fill="#ffffff" text-anchor="middle" dy="0.35em">${initial}</text>
                 `;
             }
 
@@ -169,7 +169,7 @@ export default {
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;')
                     .replace(/'/g, '&apos;');
-                textLinesSvg += `<text x="150" y="${y}" font-family="'Arial', 'Helvetica', sans-serif" font-size="${fontSize}" fill="#ffffff" text-anchor="start" dominant-baseline="central">${escaped}</text>\n`;
+                textLinesSvg += `<text x="150" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" fill="#ffffff" text-anchor="start" dy="0.35em">${escaped}</text>\n`;
             });
 
             const escapedName = senderName
@@ -201,7 +201,7 @@ export default {
                 </g>
                 
                 <!-- Sender Name -->
-                <text x="150" y="${nameY}" font-family="'Arial Black', 'Impact', sans-serif" font-weight="900" font-size="24" fill="${nameColor}" text-anchor="start" dominant-baseline="central">${escapedName}</text>
+                <text x="150" y="${nameY}" font-family="Arial Black, Impact, sans-serif" font-weight="900" font-size="24" fill="${nameColor}" text-anchor="start" dy="0.35em">${escapedName}</text>
                 
                 <!-- Quoted Message Body -->
                 ${textLinesSvg}

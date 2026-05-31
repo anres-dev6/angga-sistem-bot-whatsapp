@@ -11,6 +11,8 @@ function getRandomFile(ext) {
 export async function imageToWebp(buffer) {
     // Use SHARP for images (no ffmpeg needed)
     return await sharp(buffer)
+        .rotate() // Auto-orient based on EXIF orientation metadata
+        .ensureAlpha() // Ensure alpha channel exists for perfect transparent borders
         .resize(512, 512, {
             fit: 'contain',
             background: { r: 0, g: 0, b: 0, alpha: 0 }
@@ -26,8 +28,8 @@ export async function videoToWebp(buffer) {
     fs.writeFileSync(tmpFileIn, buffer);
 
     return new Promise((resolve, reject) => {
-        // Convert to gif-like webp using FFMPEG
-        const cmd = `ffmpeg -i "${tmpFileIn}" -vcodec libwebp -vf "scale='min(512,iw)':min'(512,ih)':force_original_aspect_ratio=decrease,fps=15, pad=512:512:-1:-1:color=white@0.0, split [a][b]; [a] palettegen=reserve_transparent=on:transparency_color=ffffff [p]; [b][p] paletteuse" -loop 0 -ss 00:00:00 -t 00:00:05 -preset default -an -vsync 0 "${tmpFileOut}"`;
+        // Convert to high-quality transparent 1:1 square animated WebP using FFmpeg
+        const cmd = `ffmpeg -i "${tmpFileIn}" -vcodec libwebp -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(512-iw)/2:(512-ih)/2:color=black@0.0" -loop 0 -ss 00:00:00 -t 00:00:05 -preset default -an -vsync 0 "${tmpFileOut}"`;
 
         exec(cmd, (err) => {
             fs.unlinkSync(tmpFileIn);
