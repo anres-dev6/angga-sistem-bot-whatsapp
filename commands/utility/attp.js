@@ -96,7 +96,9 @@ export default {
                         .replace(/>/g, '&gt;')
                         .replace(/"/g, '&quot;')
                         .replace(/'/g, '&apos;');
-                    textContentSvg += `<text x="256" y="${y}" class="text">${escapedLine}</text>\n`;
+                    
+                    // Crucial fix: Render text elements purely with inline presentation attributes and a highly compatible, universal fallback font 'sans-serif'
+                    textContentSvg += `<text x="256" y="${y}" font-family="sans-serif" font-weight="900" font-size="${fontSize}px" fill="url(#rainbowGrad)" stroke="#000000" stroke-width="${fontSize * 0.16}px" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em">${escapedLine}</text>\n`;
                 });
 
                 const svg = `
@@ -110,20 +112,6 @@ export default {
                             <stop offset="80%" stop-color="${c5}" />
                             <stop offset="100%" stop-color="${c6}" />
                         </linearGradient>
-                        <style>
-                            .text {
-                                font-family: 'Impact', 'Arial Black', 'Arial', 'Liberation Sans', 'DejaVu Sans', sans-serif;
-                                font-weight: 900;
-                                font-size: ${fontSize}px;
-                                fill: url(#rainbowGrad);
-                                stroke: #000000;
-                                stroke-width: ${fontSize * 0.16}px;
-                                stroke-linejoin: round;
-                                paint-order: stroke fill;
-                                text-anchor: middle;
-                                dominant-baseline: middle;
-                            }
-                        </style>
                     </defs>
                     <rect width="100%" height="100%" fill="none" />
                     ${textContentSvg}

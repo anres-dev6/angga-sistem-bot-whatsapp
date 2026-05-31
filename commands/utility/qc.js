@@ -155,7 +155,7 @@ export default {
                 const avatarColor = getJidColor(senderJid);
                 avatarSvg = `
                 <circle cx="70" cy="256" r="40" fill="${avatarColor}" />
-                <text x="70" y="256" font-family="Arial Black, Impact, sans-serif" font-size="40" font-weight="900" fill="#ffffff" text-anchor="middle" dy="0.35em">${initial}</text>
+                <text x="70" y="256" font-family="sans-serif" font-weight="900" font-size="40" fill="#ffffff" text-anchor="middle" dy="0.35em">${initial}</text>
                 `;
             }
 
@@ -169,7 +169,9 @@ export default {
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;')
                     .replace(/'/g, '&apos;');
-                textLinesSvg += `<text x="150" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" fill="#ffffff" text-anchor="start" dy="0.35em">${escaped}</text>\n`;
+                
+                // Crucial fix: Render text using the universal 'sans-serif' font-family and standard dy="0.35em"
+                textLinesSvg += `<text x="150" y="${y}" font-family="sans-serif" font-size="${fontSize}" fill="#ffffff" text-anchor="start" dy="0.35em">${escaped}</text>\n`;
             });
 
             const escapedName = senderName
@@ -200,8 +202,8 @@ export default {
                     <rect x="125" y="${bubbleY}" width="${bubbleWidth}" height="${bubbleHeight}" rx="18" ry="18" fill="${bubbleBgColor}" />
                 </g>
                 
-                <!-- Sender Name -->
-                <text x="150" y="${nameY}" font-family="Arial Black, Impact, sans-serif" font-weight="900" font-size="24" fill="${nameColor}" text-anchor="start" dy="0.35em">${escapedName}</text>
+                <!-- Sender Name (Crucial fix: Using universal 'sans-serif' and dy="0.35em") -->
+                <text x="150" y="${nameY}" font-family="sans-serif" font-weight="900" font-size="24" fill="${nameColor}" text-anchor="start" dy="0.35em">${escapedName}</text>
                 
                 <!-- Quoted Message Body -->
                 ${textLinesSvg}
