@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import { addStickerMetadata } from '../../Lib/sticker.js';
 
 // Word-wrapping helper for optimal layout in 1:1 square canvas
-function wrapText(text, maxCharsPerLine = 18) {
+function wrapText(text, maxCharsPerLine = 13) {
     if (!text) return [];
     const words = text.split(/\s+/);
     const lines = [];
@@ -120,22 +120,22 @@ export default {
                 .png()
                 .toBuffer();
 
-            // 2. Wrap text blocks into uppercase lines
+            // 2. Wrap text blocks into uppercase lines (wrap at 13 chars per line for massive Impact-style layouts)
             const top = topText.toUpperCase();
             const bottom = bottomText.toUpperCase();
 
-            const topLines = wrapText(top, 16);
-            const bottomLines = wrapText(bottom, 16);
+            const topLines = wrapText(top, 13);
+            const bottomLines = wrapText(bottom, 13);
 
             // 3. Calculate optimized font sizing based on length & number of lines
             const getFontSize = (lines) => {
                 if (lines.length === 0) return 0;
                 const maxLen = Math.max(...lines.map(l => l.length));
                 // Impact/Anton letters are narrow (approx. 0.45 - 0.55 of font size in width)
-                // Capped at 55px for a perfect medium/sedengan size that stays beautifully balanced
-                let size = Math.floor(450 / (maxLen * 0.55));
-                if (size < 30) size = 30; // Minimum size for excellent readability
-                if (size > 55) size = 55; // Perfect medium cap
+                // Capped at 70px to match the prominent bold style in the reference image
+                let size = Math.floor(460 / (maxLen * 0.55));
+                if (size < 35) size = 35; // Minimum size for high legibility
+                if (size > 70) size = 70; // High premium cap for maximum impact
                 return size;
             };
 
@@ -146,9 +146,9 @@ export default {
 
             // Render top text lines inline
             if (topLines.length > 0) {
-                const topLineHeight = topFontSize * 1.15;
+                const topLineHeight = topFontSize * 1.1;
                 topLines.forEach((line, idx) => {
-                    const y = 35 + idx * topLineHeight + topLineHeight / 2;
+                    const y = 25 + idx * topLineHeight + topLineHeight / 2;
                     const escaped = line
                         .replace(/&/g, '&amp;')
                         .replace(/</g, '&lt;')
@@ -156,16 +156,16 @@ export default {
                         .replace(/"/g, '&quot;')
                         .replace(/'/g, '&apos;');
                     
-                    // Standard inline styling with universal Anton, Impact, sans-serif font fallbacks and dy centering
-                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, Impact, sans-serif" font-weight="900" font-size="${topFontSize}px" fill="#ffffff" stroke="#000000" stroke-width="${topFontSize * 0.2}px" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em">${escaped}</text>\n`;
+                    const strokeWidth = Math.max(3.5, topFontSize * 0.1);
+                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, Impact, sans-serif" font-weight="900" font-size="${topFontSize}px" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}px" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em">${escaped}</text>\n`;
                 });
             }
 
             // Render bottom text lines inline (stacked upwards from the safe bottom margin)
             if (bottomLines.length > 0) {
-                const bottomLineHeight = bottomFontSize * 1.15;
+                const bottomLineHeight = bottomFontSize * 1.1;
                 const totalHeight = bottomLines.length * bottomLineHeight;
-                const startY = 485 - totalHeight;
+                const startY = 490 - totalHeight;
 
                 bottomLines.forEach((line, idx) => {
                     const y = startY + idx * bottomLineHeight + bottomLineHeight / 2;
@@ -176,7 +176,8 @@ export default {
                         .replace(/"/g, '&quot;')
                         .replace(/'/g, '&apos;');
 
-                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, Impact, sans-serif" font-weight="900" font-size="${bottomFontSize}px" fill="#ffffff" stroke="#000000" stroke-width="${bottomFontSize * 0.2}px" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em">${escaped}</text>\n`;
+                    const strokeWidth = Math.max(3.5, bottomFontSize * 0.1);
+                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, Impact, sans-serif" font-weight="900" font-size="${bottomFontSize}px" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}px" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em">${escaped}</text>\n`;
                 });
             }
 
