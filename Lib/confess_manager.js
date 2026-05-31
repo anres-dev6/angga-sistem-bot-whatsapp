@@ -24,14 +24,25 @@ export function normalizeJid(num) {
 }
 
 /**
+ * Extract clean phone number digits from a JID
+ * @param {string} jid - WhatsApp JID
+ * @returns {string} Clean numeric phone number string
+ */
+export function cleanJid(jid) {
+    if (!jid) return '';
+    return jid.split('@')[0].replace(/[^0-9]/g, '');
+}
+
+/**
  * Check if a JID is currently participating in any active confession session
  * @param {string} jid - User JID
  * @returns {object|null} Active session object or null
  */
 export function findSessionByUser(jid) {
     if (!jid) return null;
+    const targetClean = cleanJid(jid);
     for (const session of sessions.values()) {
-        if (session.senderJid === jid || session.receiverJid === jid) {
+        if (cleanJid(session.senderJid) === targetClean || cleanJid(session.receiverJid) === targetClean) {
             return session;
         }
     }
@@ -48,15 +59,16 @@ export function findSessionByUser(jid) {
  * @returns {Promise<object>} New session details
  */
 export async function createConfessSession(sock, senderJid, senderName, rawReceiver, firstMessage) {
+    const normalizedSender = normalizeJid(senderJid);
     const receiverJid = normalizeJid(rawReceiver);
 
     // Safeguard check: sender cannot confess to themselves
-    if (senderJid === receiverJid) {
+    if (normalizedSender === receiverJid) {
         throw new Error("Anda tidak bisa memulai sesi confess ke nomor Anda sendiri.");
     }
 
     // Safeguard check: sender or receiver already busy
-    const senderActive = findSessionByUser(senderJid);
+    const senderActive = findSessionByUser(normalizedSender);
     if (senderActive) {
         throw new Error("Anda sedang berada dalam sesi confess aktif. Tutup sesi saat ini dengan *.confessstop* sebelum memulai sesi baru.");
     }
@@ -70,7 +82,7 @@ export async function createConfessSession(sock, senderJid, senderName, rawRecei
 
     const session = {
         id: sessionId,
-        senderJid,
+        senderJid: normalizedSender,
         senderName,
         receiverJid,
         lastActivity: Date.now(),

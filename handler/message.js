@@ -174,13 +174,15 @@ export default async function handleMessage(sock, msg) {
         //    Anonymous Confess Session Router
         // =====================================
         try {
-            const { findSessionByUser, updateSessionActivity } = await import('../Lib/confess_manager.js');
+            const { findSessionByUser, updateSessionActivity, cleanJid } = await import('../Lib/confess_manager.js');
             const activeSession = findSessionByUser(sender);
 
             if (activeSession && body.trim()) {
                 // Bypass forwarding if the message is a bot command starting with '.'
                 if (!body.trim().startsWith('.')) {
-                    const targetJid = (sender === activeSession.senderJid) 
+                    // Compare identities by pure numeric digits to be immune to JID suffix variations (@c.us vs @s.whatsapp.net)
+                    const isSender = cleanJid(sender) === cleanJid(activeSession.senderJid);
+                    const targetJid = isSender 
                         ? activeSession.receiverJid 
                         : activeSession.senderJid;
 
