@@ -11,20 +11,20 @@ const mockSock = {
     }
 };
 
-// Mock message structure
-const mockMsg = {
+// Mock message structure simulating a Group Chat
+const mockGroupMsg = {
     key: {
-        remoteJid: '12345@s.whatsapp.net',
+        remoteJid: '987654321@g.us', // Simulating Group JID
         fromMe: false,
         id: 'ABC123XYZ'
     },
-    messageTimestamp: Math.floor(Date.now() / 1000) - 2 // Simulating 2 seconds delay
+    messageTimestamp: Math.floor(Date.now() / 1000) - 1
 };
 
 async function runTests() {
-    console.log('Running Runtime Command Tests...');
-    await runtimeCommand.run(mockSock, mockMsg, []);
-    console.log('Tests Completed Successfully!');
+    console.log('Running Runtime Command Test inside a Group...');
+    await runtimeCommand.run(mockSock, mockGroupMsg, []);
+    console.log('Group Test Completed Successfully!');
 }
 
 runTests().catch(console.error);
