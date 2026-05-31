@@ -36,9 +36,22 @@ export default {
         const from = msg.key.remoteJid;
         const q = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         
-        // Find direct or replied/quoted image or sticker message
-        const imageContent = msg.message?.imageMessage || q?.imageMessage;
-        const stickerContent = msg.message?.stickerMessage || q?.stickerMessage;
+        // Unpack wrappers if present (handles View Once, Ephemeral, etc.)
+        let targetMsg = q || msg.message;
+        if (targetMsg?.ephemeralMessage?.message) {
+            targetMsg = targetMsg.ephemeralMessage.message;
+        }
+        if (targetMsg?.viewOnceMessage?.message) {
+            targetMsg = targetMsg.viewOnceMessage.message;
+        } else if (targetMsg?.viewOnceMessageV2?.message) {
+            targetMsg = targetMsg.viewOnceMessageV2.message;
+        } else if (targetMsg?.viewOnceMessageV2Extension?.message) {
+            targetMsg = targetMsg.viewOnceMessageV2Extension.message;
+        }
+
+        // Find image or sticker message
+        const imageContent = targetMsg?.imageMessage;
+        const stickerContent = targetMsg?.stickerMessage;
 
         if (!imageContent && !stickerContent) {
             return sock.sendMessage(from, {
@@ -118,10 +131,11 @@ export default {
             const getFontSize = (lines) => {
                 if (lines.length === 0) return 0;
                 const maxLen = Math.max(...lines.map(l => l.length));
-                let size = 42;
-                if (maxLen > 8) size = Math.floor(380 / (maxLen * 0.9));
-                if (size < 24) size = 24;
-                if (size > 46) size = 46;
+                // Impact/Anton letters are narrow (approx. 0.45 - 0.55 of font size in width)
+                // Capped at 55px for a perfect medium/sedengan size that stays beautifully balanced
+                let size = Math.floor(450 / (maxLen * 0.55));
+                if (size < 30) size = 30; // Minimum size for excellent readability
+                if (size > 55) size = 55; // Perfect medium cap
                 return size;
             };
 
