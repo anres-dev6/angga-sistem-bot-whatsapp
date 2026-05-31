@@ -25,7 +25,7 @@ export default {
     name: 'smeme',
     aliases: ['smeme', 'sticker-meme', 'stikermeme'],
     tags: ['sticker'],
-    description: 'Mengubah gambar menjadi stiker meme WhatsApp dengan teks atas/bawah secara otomatis',
+    description: 'Mengubah gambar/stiker menjadi stiker meme WhatsApp dengan teks atas/bawah secara otomatis',
     access: {
         owner: false,
         group: false,
@@ -36,19 +36,27 @@ export default {
         const from = msg.key.remoteJid;
         const q = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         
-        // Find direct or replied/quoted image message
-        const content = msg.message?.imageMessage || q?.imageMessage;
+        // Find direct or replied/quoted image or sticker message
+        const imageContent = msg.message?.imageMessage || q?.imageMessage;
+        const stickerContent = msg.message?.stickerMessage || q?.stickerMessage;
 
-        if (!content) {
+        if (!imageContent && !stickerContent) {
             return sock.sendMessage(from, {
-                text: "❌ Kirim/Reply gambar dengan caption *.smeme Teks Atas|Teks Bawah*\n\n💡 *Cara pakai:*\n• Kirim gambar dengan caption: `.smeme AKU|PAS DOSEN BILANG CUMA 1 SOAL`\n• Reply gambar dengan caption: `.smeme AKU PAS LIAT NILAI`"
+                text: "❌ Kirim/Reply gambar atau stiker dengan caption *.smeme Teks Atas|Teks Bawah*\n\n💡 *Cara pakai:*\n• Reply gambar/stiker: `.smeme AKU|PAS DOSEN BILANG CUMA 1 SOAL`\n• Kirim gambar dengan caption: `.smeme AKU PAS LIAT NILAI`"
+            }, { quoted: msg });
+        }
+
+        // Reject animated stickers since meme overlay requires a static canvas
+        if (stickerContent && stickerContent.isAnimated) {
+            return sock.sendMessage(from, {
+                text: "❌ Maaf, stiker bergerak (animated sticker) tidak didukung untuk dijadikan stiker meme."
             }, { quoted: msg });
         }
 
         const input = args.join(" ");
         if (!input) {
             return sock.sendMessage(from, {
-                text: "❌ Silakan masukkan teks meme untuk ditempelkan pada gambar.\n\n💡 *Format:* \n• `.smeme Teks Atas|Teks Bawah`\n• `.smeme Teks Atas`"
+                text: "❌ Silakan masukkan teks meme untuk ditempelkan pada gambar/stiker.\n\n💡 *Format:* \n• `.smeme Teks Atas|Teks Bawah`\n• `.smeme Teks Atas`"
             }, { quoted: msg });
         }
 
@@ -74,14 +82,21 @@ export default {
             // Send processing reaction
             await sock.sendMessage(from, { react: { text: '⏳', key: msg.key } });
 
-            // Download original image
-            const stream = await downloadContentFromMessage(content, 'image');
+            // Download media content dynamically depending on type
             let buffer = Buffer.from([]);
-            for await (const chunk of stream) {
-                buffer = Buffer.concat([buffer, chunk]);
+            if (imageContent) {
+                const stream = await downloadContentFromMessage(imageContent, 'image');
+                for await (const chunk of stream) {
+                    buffer = Buffer.concat([buffer, chunk]);
+                }
+            } else if (stickerContent) {
+                const stream = await downloadContentFromMessage(stickerContent, 'sticker');
+                for await (const chunk of stream) {
+                    buffer = Buffer.concat([buffer, chunk]);
+                }
             }
 
-            // 1. Convert original image to exactly 1:1 padded transparent square base image
+            // 1. Convert original image/sticker to exactly 1:1 padded transparent square base image
             const baseImage = await sharp(buffer)
                 .rotate() // Auto-orient phone photos based on EXIF
                 .ensureAlpha() // Ensure alpha transparency exists
