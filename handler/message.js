@@ -171,6 +171,32 @@ export default async function handleMessage(sock, msg) {
         }
 
         // =====================================
+        //    Anonymous Confess Session Router
+        // =====================================
+        try {
+            const { findSessionByUser, updateSessionActivity } = await import('../Lib/confess_manager.js');
+            const activeSession = findSessionByUser(sender);
+
+            if (activeSession && body.trim()) {
+                // Bypass forwarding if the message is a bot command starting with '.'
+                if (!body.trim().startsWith('.')) {
+                    const targetJid = (sender === activeSession.senderJid) 
+                        ? activeSession.receiverJid 
+                        : activeSession.senderJid;
+
+                    const forwardText = `💬 *Balasan*\n\n${body.trim()}`;
+                    await sock.sendMessage(targetJid, { text: forwardText });
+
+                    // Reset/extend the 1-hour inactivity timeout
+                    updateSessionActivity(sock, activeSession);
+                    return; // Intercept and halt further processing
+                }
+            }
+        } catch (err) {
+            console.error('[Handler] Confess forwarding router error:', err);
+        }
+
+        // =====================================
         //    Handle Button Response (YT-DLP)
         // =====================================
         if (m.message?.buttonsResponseMessage) {
