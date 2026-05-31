@@ -15,7 +15,7 @@ export async function imageToWebp(buffer) {
             fit: 'contain',
             background: { r: 0, g: 0, b: 0, alpha: 0 }
         })
-        .webp({ quality: 75 })
+        .webp({ quality: 85, effort: 6 })
         .toBuffer();
 }
 

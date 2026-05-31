@@ -1,5 +1,6 @@
 import { downloadContentFromMessage } from "baileys";
 import { imageToWebp, videoToWebp } from "../../Lib/converter.js";
+import { addStickerMetadata } from "../../Lib/sticker.js";
 
 export default {
     name: 's',
@@ -62,7 +63,10 @@ export default {
                 stickerBuff = await imageToWebp(buffer);
             }
 
-            await sock.sendMessage(from, { sticker: stickerBuff }, { quoted: m });
+            // Inject custom EXIF metadata
+            const finalSticker = await addStickerMetadata(stickerBuff, 'ANRES-DEV6', 'Made With ANRES');
+
+            await sock.sendMessage(from, { sticker: finalSticker }, { quoted: m });
             await sock.sendMessage(from, { react: { text: '✅', key: m.key } });
 
         } catch (e) {

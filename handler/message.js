@@ -1553,6 +1553,44 @@ export default async function handleMessage(sock, msg) {
             }
         }
 
+        // ============================================
+        //              AUTO STICKER HOOK
+        // ============================================
+        try {
+            const { isAutoStickerEnabled } = await import('../Lib/autosticker_manager.js');
+            if (!body.startsWith(".") && isAutoStickerEnabled(from) && m.message?.imageMessage && !m.key.fromMe) {
+                console.log('[AutoSticker] Auto sticker triggered for chat:', from);
+                const content = m.message.imageMessage;
+
+                // Send processing reaction
+                await sock.sendMessage(from, { react: { text: '⏳', key: m.key } });
+
+                // Download image content
+                const { downloadContentFromMessage } = await import('baileys');
+                const stream = await downloadContentFromMessage(content, 'image');
+                let buffer = Buffer.from([]);
+                for await (const chunk of stream) {
+                    buffer = Buffer.concat([buffer, chunk]);
+                }
+
+                const { imageToWebp } = await import('../Lib/converter.js');
+                const { addStickerMetadata } = await import('../Lib/sticker.js');
+
+                // Convert to WebP high quality
+                const stickerBuff = await imageToWebp(buffer);
+
+                // Inject custom EXIF metadata
+                const finalSticker = await addStickerMetadata(stickerBuff, 'ANRES-DEV6', 'Made With ANRES');
+
+                // Send sticker
+                await sock.sendMessage(from, { sticker: finalSticker }, { quoted: m });
+                await sock.sendMessage(from, { react: { text: '✅', key: m.key } });
+                return; // Stop further processing
+            }
+        } catch (err) {
+            console.error('[AutoSticker] Hook Error:', err);
+        }
+
 
 
         // ============================================

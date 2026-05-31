@@ -1,10 +1,12 @@
 import axios from "axios";
+import { imageToWebp } from "../../Lib/converter.js";
+import { addStickerMetadata } from "../../Lib/sticker.js";
 
 export default {
     name: 'brat',
     aliases: ['brat', 'b'],
     tags: ['sticker'],
-    description: 'Buat stiker teks brat',
+    description: 'Buat stiker teks brat dengan metadata custom',
     access: {
         owner: false,
         group: false,
@@ -27,10 +29,16 @@ export default {
             const response = await axios.get(url, { responseType: "arraybuffer" });
             const buffer = Buffer.from(response.data);
 
-            // Kirim sebagai stiker langsung (tanpa metadata dulu untuk testing)
+            // Convert raw PNG/JPG image to WebP sticker format
+            const webpBuffer = await imageToWebp(buffer);
+
+            // Inject custom WhatsApp sticker EXIF metadata
+            const finalSticker = await addStickerMetadata(webpBuffer, 'ANRES-DEV6', 'Made With ANRES');
+
+            // Kirim stiker hasil modifikasi
             await sock.sendMessage(from, {
-                sticker: buffer
-            });
+                sticker: finalSticker
+            }, { quoted: m });
 
         } catch (err) {
             console.log("Brat Error:", err);
