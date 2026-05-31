@@ -1,6 +1,7 @@
 import { downloadContentFromMessage } from 'baileys';
 import sharp from 'sharp';
 import { addStickerMetadata } from '../../Lib/sticker.js';
+import { validateFonts } from '../../utils/fontHelper.js';
 
 // Word-wrapping helper for optimal layout in 1:1 square canvas
 function wrapText(text, maxCharsPerLine = 13) {
@@ -116,7 +117,17 @@ export default {
             const topLines = wrapText(top, 13);
             const bottomLines = wrapText(bottom, 13);
 
-            // 2. Calculate optimized font sizing based on length & number of lines
+            // 2. Perform font validation before rendering
+            const { isAntonValid, isNotoValid } = validateFonts();
+            
+            // Construct fallback font stack dynamically
+            let fontStack = [];
+            if (isAntonValid) fontStack.push("Anton");
+            if (isNotoValid) fontStack.push("'Noto Sans'");
+            fontStack.push("'Arial Black'", "Arial", "sans-serif");
+            const fontName = fontStack.join(", ");
+
+            // 3. Calculate optimized font sizing based on length & number of lines
             const getFontSize = (lines) => {
                 if (lines.length === 0) return 0;
                 const maxLen = Math.max(...lines.map(l => l.length));
@@ -155,7 +166,7 @@ export default {
                     
                     const strokeWidth = Math.max(3.5, topFontSize * 0.11);
                     // Bulletproof: unitless attributes AND inline CSS style mapping guarantees correct scaling on ALL systems
-                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, 'Arial Black', Impact, Arial, sans-serif" font-weight="900" font-size="${topFontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em" style="font-size: ${topFontSize}px; stroke-width: ${strokeWidth}px; font-family: Anton, 'Arial Black', Impact, Arial, sans-serif; font-weight: 900;">${escaped}</text>\n`;
+                    textOverlaySvg += `<text x="256" y="${y}" font-family="${fontName}" font-weight="900" font-size="${topFontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em" style="font-size: ${topFontSize}px; stroke-width: ${strokeWidth}px; font-family: ${fontName}; font-weight: 900;">${escaped}</text>\n`;
                 });
             }
 
@@ -176,7 +187,7 @@ export default {
 
                     const strokeWidth = Math.max(3.5, bottomFontSize * 0.11);
                     // Bulletproof: unitless attributes AND inline CSS style mapping guarantees correct scaling on ALL systems
-                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, 'Arial Black', Impact, Arial, sans-serif" font-weight="900" font-size="${bottomFontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em" style="font-size: ${bottomFontSize}px; stroke-width: ${strokeWidth}px; font-family: Anton, 'Arial Black', Impact, Arial, sans-serif; font-weight: 900;">${escaped}</text>\n`;
+                    textOverlaySvg += `<text x="256" y="${y}" font-family="${fontName}" font-weight="900" font-size="${bottomFontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em" style="font-size: ${bottomFontSize}px; stroke-width: ${strokeWidth}px; font-family: ${fontName}; font-weight: 900;">${escaped}</text>\n`;
                 });
             }
 

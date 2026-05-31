@@ -1,3 +1,4 @@
+import "./utils/fontSetupInit.js";
 import {
     makeWASocket,
     useMultiFileAuthState,
