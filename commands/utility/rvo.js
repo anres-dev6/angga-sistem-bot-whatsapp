@@ -1,10 +1,72 @@
 import { downloadMediaMessage } from "baileys";
 
+// Ordered list of WhatsApp media message types to check (layered check)
+const TARGET_MEDIA_TYPES = [
+    'viewOnceMessage',
+    'viewOnceMessageV2',
+    'viewOnceMessageV2Extension',
+    'ephemeralMessage',
+    'imageMessage',
+    'videoMessage',
+    'documentMessage',
+    'stickerMessage'
+];
+
+/**
+ * Deep recursive scanner to search and extract media messages within a WhatsApp message tree.
+ * Supports Android/iOS structures, forwarded wrappers, story/status contents, and custom clients.
+ *
+ * @param {object} obj - Nested message object to inspect
+ * @param {string} path - Logging traversal path track
+ * @returns {object|null} Matched media details containing type, parsed message object, and path taken
+ */
+function findMediaMessage(obj, path = 'quoted') {
+    if (!obj || typeof obj !== 'object') return null;
+
+    // 1. Precedence check on current object layer
+    for (const type of TARGET_MEDIA_TYPES) {
+        if (obj[type]) {
+            const nested = obj[type];
+            const currentPath = `${path} -> ${type}`;
+            console.log(`[RVO Log] Detected media wrapper/target of type "${type}" at path: "${currentPath}"`);
+
+            // If it is a wrapper format, recurse into its message contents
+            if (['viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension', 'ephemeralMessage'].includes(type)) {
+                const subMsg = nested.message || nested;
+                const result = findMediaMessage(subMsg, currentPath);
+                if (result) return result;
+            } else {
+                // It is a direct media block. Check if download credentials exist.
+                if (nested.mediaKey || nested.directPath || nested.url) {
+                    return {
+                        type,
+                        message: nested,
+                        path: currentPath
+                    };
+                } else {
+                    console.log(`[RVO Log] Found "${type}" but it is missing binary download credentials (expired or corrupt).`);
+                }
+            }
+        }
+    }
+
+    // 2. Deep recursive fallback search (handles status/stories, forwards, contextInfo nesting)
+    for (const key of Object.keys(obj)) {
+        // Skip contextInfo to prevent infinite circular loops or quoting backtracking
+        if (obj[key] && typeof obj[key] === 'object' && key !== 'contextInfo') {
+            const result = findMediaMessage(obj[key], `${path} -> ${key}`);
+            if (result) return result;
+        }
+    }
+
+    return null;
+}
+
 export default {
     name: 'rvo',
     tags: ['tools'],
     aliases: ['readviewonce', 'viewonce', 'read', 'vo'],
-    description: 'Buka pesan view once (foto/video)',
+    description: 'Buka pesan view once (foto/video/audio/sticker/document)',
     access: {
         owner: true,
         group: false,
@@ -14,109 +76,59 @@ export default {
         const from = msg.key.remoteJid;
         const m = msg;
 
-        // Permission check
+        // Owner security validation
         if (!isOwner) return m.reply("❌ Command ini hanya untuk owner bot.");
 
         try {
-            // 1. Get Quoted Message
-            const quotedMsg = m.message?.extendedTextMessage?.contextInfo;
-            if (!quotedMsg?.quotedMessage) {
-                return sock.sendMessage(from, { text: "❌ Reply gambar/video View Once yang ingin Anda lihat" }, { quoted: m });
-            }
-
-            const quoted = quotedMsg.quotedMessage;
-
-            // 2. Enhanced Detection with Multiple Strategies
-            let viewOnceMsg = null;
-            let detectionMethod = null;
-
-            // Strategy 1: Standard wrappers
-            viewOnceMsg = quoted.viewOnceMessage?.message ||
-                quoted.viewOnceMessageV2?.message ||
-                quoted.viewOnceMessageV2Extension?.message;
-
-            if (viewOnceMsg) {
-                detectionMethod = 'wrapper';
-                console.log('[RVO] Detection: Standard wrapper');
-            }
-
-            // Strategy 2: Ephemeral message wrapper
-            if (!viewOnceMsg && quoted.ephemeralMessage?.message) {
-                const ephemeral = quoted.ephemeralMessage.message;
-                if (ephemeral.viewOnceMessage || ephemeral.viewOnceMessageV2 || ephemeral.viewOnceMessageV2Extension) {
-                    viewOnceMsg = ephemeral.viewOnceMessage?.message ||
-                        ephemeral.viewOnceMessageV2?.message ||
-                        ephemeral.viewOnceMessageV2Extension?.message;
-                    detectionMethod = 'ephemeral-wrapper';
-                    console.log('[RVO] Detection: Ephemeral wrapper');
-                }
-            }
-
-            // Strategy 3: Direct viewOnce property
-            if (!viewOnceMsg) {
-                const messageKeys = Object.keys(quoted);
-                for (const key of messageKeys) {
-                    if (key.endsWith('Message') && quoted[key]?.viewOnce) {
-                        console.log('[RVO] Detection: viewOnce property on:', key);
-                        viewOnceMsg = { [key]: quoted[key] };
-                        detectionMethod = 'viewOnce-property';
-                        break;
-                    }
-                }
-            }
-
-            // Strategy 4: Check messageContextInfo
-            if (!viewOnceMsg && quoted.messageContextInfo) {
-                console.log('[RVO] Checking messageContextInfo...');
-                // Sometimes view once metadata is here
-            }
-
-            if (!viewOnceMsg) {
-                console.log('[RVO] Detection FAILED - Message structure:', JSON.stringify(Object.keys(quoted)));
-                return sock.sendMessage(from, {
-                    text: "❌ Ini bukan pesan view-once atau format tidak didukung.\n\n💡 Pastikan Anda reply langsung ke pesan view once."
+            // 1. Get Quoted/Replied Message Context
+            const quotedContext = m.message?.extendedTextMessage?.contextInfo;
+            if (!quotedContext || !quotedContext.quotedMessage) {
+                return sock.sendMessage(from, { 
+                    text: "❌ Reply media View Once (foto, video, audio, sticker, atau document) yang ingin Anda buka dengan mengetik *.rvo*" 
                 }, { quoted: m });
             }
 
-            console.log(`[RVO] Detection successful: ${detectionMethod}`);
+            const quotedMessage = quotedContext.quotedMessage;
+            console.log(`[RVO Command] Processing message. Type: ${Object.keys(quotedMessage).join(', ')}`);
 
-            // 3. Extract Media Type
-            let mediaType = null;
-            let mediaMessage = null;
+            // 2. Perform deep layered media search
+            const resolved = findMediaMessage(quotedMessage);
 
-            if (viewOnceMsg.imageMessage) {
-                mediaType = 'image';
-                mediaMessage = viewOnceMsg.imageMessage;
-            } else if (viewOnceMsg.videoMessage) {
-                mediaType = 'video';
-                mediaMessage = viewOnceMsg.videoMessage;
-            } else {
-                console.log('[RVO] No image/video in viewOnceMsg:', Object.keys(viewOnceMsg));
-                return sock.sendMessage(from, { text: "❌ Media View Once tidak didukung atau kosong." }, { quoted: m });
+            if (!resolved) {
+                console.log(`[RVO Command] Search complete. No supported media structures found.`);
+                return sock.sendMessage(from, {
+                    text: `❌ Media tidak dapat diakses.\n\n` +
+                          `Kemungkinan penyebab:\n` +
+                          `• Pesan sudah terlalu lama atau expired.\n` +
+                          `• Media telah dihapus oleh pengirim.\n` +
+                          `• WhatsApp tidak lagi menyediakan media tersebut.\n` +
+                          `• Format media tidak didukung.\n\n` +
+                          `Silakan minta pengirim mengirim ulang media tersebut.`
+                }, { quoted: m });
             }
 
-            if (!mediaMessage.mediaKey) {
-                return sock.sendMessage(from, { text: "❌ Error: Media key tidak ditemukan (Media sudah expired atau corrupt)." }, { quoted: m });
-            }
+            const mediaType = resolved.type;
+            const mediaMessage = resolved.message;
+            const mimeType = mediaMessage.mimetype || 'unknown';
 
-            console.log(`[RVO] Media type: ${mediaType}`);
+            console.log(`[RVO Command] Found media target. Type: ${mediaType}, Path: ${resolved.path}, Mimetype: ${mimeType}`);
+            await sock.sendMessage(from, { react: { text: '⏳', key: m.key } });
 
-            // 4. Download Media with Multiple Strategies
+            // 3. Sequential Multi-Tier Downloading Fallback
             let buffer = null;
             let downloadError = null;
-            let successStrategy = null;
 
-            // Strategy 1: Use original quoted message
+            // Strategy 1: Reconstructed single-wrapper message
             try {
-                console.log('[RVO] Download Strategy 1: Original quoted');
+                console.log(`[RVO Downloader] Strategy 1: Reconstructed wrapper using type "${mediaType}"`);
                 buffer = await downloadMediaMessage(
                     {
                         key: {
-                            remoteJid: quotedMsg.participant || from,
+                            remoteJid: quotedContext.participant || from,
                             fromMe: false,
-                            id: quotedMsg.stanzaId
+                            id: quotedContext.stanzaId
                         },
-                        message: quoted
+                        message: { [mediaType]: mediaMessage }
                     },
                     "buffer",
                     {},
@@ -125,24 +137,23 @@ export default {
                         reuploadRequest: sock.updateMediaMessage
                     }
                 );
-                successStrategy = 'original-quoted';
-            } catch (e1) {
-                downloadError = e1;
-                console.log('[RVO] Strategy 1 failed:', e1.message);
+            } catch (err1) {
+                downloadError = err1;
+                console.log(`[RVO Downloader] Strategy 1 failed:`, err1.message);
             }
 
-            // Strategy 2: Use wrapper if exists
-            if (!buffer && isViewOnceWrapper(quoted)) {
+            // Strategy 2: Direct media block as root envelope
+            if (!buffer) {
                 try {
-                    console.log('[RVO] Download Strategy 2: Wrapper reconstruction');
+                    console.log(`[RVO Downloader] Strategy 2: Direct media block`);
                     buffer = await downloadMediaMessage(
                         {
                             key: {
-                                remoteJid: quotedMsg.participant || from,
+                                remoteJid: quotedContext.participant || from,
                                 fromMe: false,
-                                id: quotedMsg.stanzaId
+                                id: quotedContext.stanzaId
                             },
-                            message: { viewOnceMessageV2: { message: viewOnceMsg } }
+                            message: mediaMessage
                         },
                         "buffer",
                         {},
@@ -151,25 +162,24 @@ export default {
                             reuploadRequest: sock.updateMediaMessage
                         }
                     );
-                    successStrategy = 'wrapper-reconstruction';
-                } catch (e2) {
-                    downloadError = e2;
-                    console.log('[RVO] Strategy 2 failed:', e2.message);
+                } catch (err2) {
+                    downloadError = err2;
+                    console.log(`[RVO Downloader] Strategy 2 failed:`, err2.message);
                 }
             }
 
-            // Strategy 3: Direct media message
+            // Strategy 3: Original quoted envelope structure
             if (!buffer) {
                 try {
-                    console.log('[RVO] Download Strategy 3: Direct media');
+                    console.log(`[RVO Downloader] Strategy 3: Full original quoted message envelope`);
                     buffer = await downloadMediaMessage(
                         {
                             key: {
-                                remoteJid: quotedMsg.participant || from,
+                                remoteJid: quotedContext.participant || from,
                                 fromMe: false,
-                                id: quotedMsg.stanzaId
+                                id: quotedContext.stanzaId
                             },
-                            message: viewOnceMsg
+                            message: quotedMessage
                         },
                         "buffer",
                         {},
@@ -178,45 +188,72 @@ export default {
                             reuploadRequest: sock.updateMediaMessage
                         }
                     );
-                    successStrategy = 'direct-media';
-                } catch (e3) {
-                    downloadError = e3;
-                    console.log('[RVO] Strategy 3 failed:', e3.message);
+                } catch (err3) {
+                    downloadError = err3;
+                    console.log(`[RVO Downloader] Strategy 3 failed:`, err3.message);
                 }
             }
 
+            // Check if download failed on all tiers
             if (!buffer) {
-                console.error('[RVO] All download strategies failed');
+                console.error(`[RVO Downloader] All downloading fallbacks failed. Last Error:`, downloadError);
+                await sock.sendMessage(from, { react: { text: '❌', key: m.key } });
                 return sock.sendMessage(from, {
-                    text: `❌ Gagal mendownload media view once.\n\n⚠️ Error: ${downloadError?.message || 'Unknown'}\n\n💡 Media mungkin sudah expired atau tidak bisa diakses.`
+                    text: `❌ Media tidak dapat diakses.\n\n` +
+                          `Kemungkinan penyebab:\n` +
+                          `• Pesan sudah terlalu lama atau expired.\n` +
+                          `• Media telah dihapus oleh pengirim.\n` +
+                          `• WhatsApp tidak lagi menyediakan media tersebut.\n` +
+                          `• Format media tidak didukung.\n\n` +
+                          `Silakan minta pengirim mengirim ulang media tersebut.`
                 }, { quoted: m });
             }
 
-            console.log(`[RVO] Download successful via: ${successStrategy}`);
+            console.log(`[RVO Downloader] Download successful! Buffer size: ${buffer.length} bytes.`);
 
-            // 5. Send Media
-            const caption = `🔓 *VIEW ONCE OPENED*\n\n` +
-                `📝 Caption: ${mediaMessage.caption || '-'}\n` +
-                `🔍 Detection: ${detectionMethod}\n` +
-                `📥 Download: ${successStrategy}\n` +
-                `📊 Type: ${mediaType}`;
+            // 4. Send Opened Media depending on resolved MIME category
+            const caption = `🔓 *VIEW ONCE OPENED SUCCESSFULLY*\n\n` +
+                            `📂 *Path:* \`${resolved.path}\`\n` +
+                            `📊 *Type:* \`${mediaType}\`\n` +
+                            `🏷️ *Mime:* \`${mimeType}\`\n` +
+                            `📝 *Caption:* ${mediaMessage.caption || '-'}`;
 
-            if (mediaType === 'image') {
+            if (mimeType.includes('image') || mediaType === 'imageMessage') {
                 await sock.sendMessage(from, { image: buffer, caption: caption }, { quoted: m });
-            } else if (mediaType === 'video') {
+            } else if (mimeType.includes('video') || mediaType === 'videoMessage') {
                 await sock.sendMessage(from, { video: buffer, caption: caption }, { quoted: m });
+            } else if (mimeType.includes('sticker') || mediaType === 'stickerMessage') {
+                await sock.sendMessage(from, { sticker: buffer }, { quoted: m });
+                await sock.sendMessage(from, { text: caption }, { quoted: m });
+            } else if (mimeType.includes('audio')) {
+                await sock.sendMessage(from, { audio: buffer, mimetype: mimeType }, { quoted: m });
+                await sock.sendMessage(from, { text: caption }, { quoted: m });
+            } else {
+                // Fallback to sending as standard document/attachment
+                const originalName = mediaMessage.fileName || `rvo_file_${Date.now()}.${mimeType.split('/')[1] || 'bin'}`;
+                await sock.sendMessage(from, {
+                    document: buffer,
+                    mimetype: mimeType || 'application/octet-stream',
+                    fileName: originalName,
+                    caption: caption
+                }, { quoted: m });
             }
 
-            console.log('[RVO] Successfully sent view once media');
+            await sock.sendMessage(from, { react: { text: '✅', key: m.key } });
+            console.log(`[RVO Command] Successfully processed and dispatched view once media.`);
 
         } catch (e) {
-            console.error('[RVO] Unexpected error:', e);
-            sock.sendMessage(from, { text: `❌ Error: ${e.message}\n\n💡 Coba lagi atau hubungi owner jika masalah berlanjut.` }, { quoted: m });
+            console.error('[RVO Command] Unexpected critical error:', e);
+            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+            return sock.sendMessage(from, {
+                text: `❌ Media tidak dapat diakses.\n\n` +
+                      `Kemungkinan penyebab:\n` +
+                      `• Pesan sudah terlalu lama atau expired.\n` +
+                      `• Media telah dihapus oleh pengirim.\n` +
+                      `• WhatsApp tidak lagi menyediakan media tersebut.\n` +
+                      `• Format media tidak didukung.\n\n` +
+                      `Silakan minta pengirim mengirim ulang media tersebut.`
+            }, { quoted: msg });
         }
     }
 };
-
-// Helper to check if it's a wrapper (for logic clarity)
-function isViewOnceWrapper(msg) {
-    return msg.viewOnceMessage || msg.viewOnceMessageV2 || msg.viewOnceMessageV2Extension;
-}
