@@ -109,33 +109,30 @@ export default {
                 }
             }
 
-            // 1. Convert original image/sticker to exactly 1:1 padded transparent square base image
-            const baseImage = await sharp(buffer)
-                .rotate() // Auto-orient phone photos based on EXIF
-                .ensureAlpha() // Ensure alpha transparency exists
-                .resize(512, 512, {
-                    fit: 'contain',
-                    background: { r: 0, g: 0, b: 0, alpha: 0 } // Add transparent border padding
-                })
-                .png()
-                .toBuffer();
-
-            // 2. Wrap text blocks into uppercase lines (wrap at 13 chars per line for massive Impact-style layouts)
+            // 1. Wrap text blocks into uppercase lines (wrap at 13 chars per line for massive Impact-style layouts)
             const top = topText.toUpperCase();
             const bottom = bottomText.toUpperCase();
 
             const topLines = wrapText(top, 13);
             const bottomLines = wrapText(bottom, 13);
 
-            // 3. Calculate optimized font sizing based on length & number of lines
+            // 2. Calculate optimized font sizing based on length & number of lines
             const getFontSize = (lines) => {
                 if (lines.length === 0) return 0;
                 const maxLen = Math.max(...lines.map(l => l.length));
-                // Impact/Anton letters are narrow (approx. 0.45 - 0.55 of font size in width)
-                // Capped at 70px to match the prominent bold style in the reference image
-                let size = Math.floor(460 / (maxLen * 0.55));
-                if (size < 35) size = 35; // Minimum size for high legibility
-                if (size > 70) size = 70; // High premium cap for maximum impact
+                // Proportional base size (each letter of narrow bold fonts is approx 0.45 - 0.50 of font size in width)
+                let size = Math.floor(480 / (maxLen * 0.5));
+                
+                // Dynamic caps depending on the number of wrapped lines to prevent canvas overflow
+                let maxCap = 100; // 1 Line can be HUGE (up to 100px)
+                if (lines.length === 2) maxCap = 75; // 2 Lines capped at 75px
+                if (lines.length === 3) maxCap = 55; // 3 Lines capped at 55px to protect focal object
+                
+                let minCap = 35;
+                if (lines.length === 1) minCap = 50; // Single line should always be highly prominent
+                
+                if (size < minCap) size = minCap;
+                if (size > maxCap) size = maxCap;
                 return size;
             };
 
@@ -156,8 +153,9 @@ export default {
                         .replace(/"/g, '&quot;')
                         .replace(/'/g, '&apos;');
                     
-                    const strokeWidth = Math.max(3.5, topFontSize * 0.1);
-                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, Impact, sans-serif" font-weight="900" font-size="${topFontSize}px" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}px" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em">${escaped}</text>\n`;
+                    const strokeWidth = Math.max(3.5, topFontSize * 0.11);
+                    // Bulletproof: unitless attributes AND inline CSS style mapping guarantees correct scaling on ALL systems
+                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, 'Arial Black', Impact, Arial, sans-serif" font-weight="900" font-size="${topFontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em" style="font-size: ${topFontSize}px; stroke-width: ${strokeWidth}px; font-family: Anton, 'Arial Black', Impact, Arial, sans-serif; font-weight: 900;">${escaped}</text>\n`;
                 });
             }
 
@@ -176,21 +174,28 @@ export default {
                         .replace(/"/g, '&quot;')
                         .replace(/'/g, '&apos;');
 
-                    const strokeWidth = Math.max(3.5, bottomFontSize * 0.1);
-                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, Impact, sans-serif" font-weight="900" font-size="${bottomFontSize}px" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}px" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em">${escaped}</text>\n`;
+                    const strokeWidth = Math.max(3.5, bottomFontSize * 0.11);
+                    // Bulletproof: unitless attributes AND inline CSS style mapping guarantees correct scaling on ALL systems
+                    textOverlaySvg += `<text x="256" y="${y}" font-family="Anton, 'Arial Black', Impact, Arial, sans-serif" font-weight="900" font-size="${bottomFontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em" style="font-size: ${bottomFontSize}px; stroke-width: ${strokeWidth}px; font-family: Anton, 'Arial Black', Impact, Arial, sans-serif; font-weight: 900;">${escaped}</text>\n`;
                 });
             }
 
-            // Build transparent SVG overlay card
+            // Build transparent SVG overlay card (crucial: viewBox is required for perfect 1:1 scaling across different systems)
             const svgOverlay = `
-            <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+            <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
                 <rect width="100%" height="100%" fill="none" />
                 ${textOverlaySvg}
             </svg>
             `;
 
-            // 4. Composite meme text overlay on top of 1:1 padded PNG base image
-            const rawWebpMeme = await sharp(baseImage)
+            // 3. Resize and composite the original image/sticker with SVG overlay in a single high-performance pipeline
+            const rawWebpMeme = await sharp(buffer)
+                .rotate() // Auto-orient phone photos based on EXIF
+                .ensureAlpha() // Ensure alpha transparency exists
+                .resize(512, 512, {
+                    fit: 'contain',
+                    background: { r: 0, g: 0, b: 0, alpha: 0 } // Add transparent border padding
+                })
                 .composite([{ input: Buffer.from(svgOverlay), blend: 'over' }])
                 .webp({ quality: 90 })
                 .toBuffer();
