@@ -36,6 +36,51 @@ export function detectPlatform(url) {
         };
     }
 
+    // Douyin
+    if (urlLower.includes('douyin.com')) {
+        return {
+            platform: 'douyin',
+            name: 'Douyin',
+            type: 'video'
+        };
+    }
+
+    // Capcut
+    if (urlLower.includes('capcut.com') || urlLower.includes('capcut.net')) {
+        return {
+            platform: 'capcut',
+            name: 'CapCut',
+            type: 'video'
+        };
+    }
+
+    // Canva
+    if (urlLower.includes('canva.com')) {
+        return {
+            platform: 'canva',
+            name: 'Canva',
+            type: 'video'
+        };
+    }
+
+    // Melolo
+    if (urlLower.includes('melolo.org') || urlLower.includes('melolo.com') || urlLower.includes('melolo.app')) {
+        return {
+            platform: 'melolo',
+            name: 'Melolo',
+            type: 'video'
+        };
+    }
+
+    // Pinedrama
+    if (urlLower.includes('pinedrama.com') || urlLower.includes('pinedrama.app')) {
+        return {
+            platform: 'pinedrama',
+            name: 'PineDrama',
+            type: 'video'
+        };
+    }
+
     // Facebook
     if (urlLower.includes('facebook.com') || urlLower.includes('fb.watch') || urlLower.includes('fb.com')) {
         return {
@@ -283,6 +328,11 @@ export function getPlatformEmoji(platform) {
         pinterest: '📌',
         linkedin: '💼',
         threads: '🧵',
+        douyin: '🎵',
+        capcut: '🎬',
+        canva: '🎨',
+        melolo: '🎭',
+        pinedrama: '🎭',
         direct: '📥'
     };
 
