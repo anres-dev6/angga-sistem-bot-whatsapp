@@ -51,8 +51,8 @@ export default {
         // Konversi teks biasa ke monospace Unicode
         const toMono = (str) => {
             return str.split('').map(c => {
-                if (c >= 'a' && c <= 'z') return String.fromCodePoint(0x1D670 + (c.charCodeAt(0) - 97));
-                if (c >= 'A' && c <= 'Z') return String.fromCodePoint(0x1D670 + (c.charCodeAt(0) - 65) - 32); // uppercase tetap monospace
+                if (c >= 'a' && c <= 'z') return String.fromCodePoint(0x1D68A + (c.charCodeAt(0) - 97));
+                if (c >= 'A' && c <= 'Z') return String.fromCodePoint(0x1D670 + (c.charCodeAt(0) - 65));
                 if (c >= '0' && c <= '9') return String.fromCodePoint(0x1D7F6 + (c.charCodeAt(0) - 48));
                 return c;
             }).join('');
