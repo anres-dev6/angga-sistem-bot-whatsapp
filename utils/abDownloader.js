@@ -67,20 +67,87 @@ async function downloadFile(url, prefix) {
 // ===== FALLBACK API FUNCTIONS =====
 
 async function instagramFallback(url) {
-    // Try indown.io API
-    const res = await fetch('https://indown.io/api/post', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        },
-        body: JSON.stringify({ link: url, locale: 'id', index: 0 })
-    });
-    if (!res.ok) throw new Error(`indown.io: ${res.status}`);
-    const json = await res.json();
-    if (json.url) return { single: json.url };
-    if (json.urls?.length > 0) return { slide: json.urls };
-    throw new Error('No media found on indown.io');
+    // 1. Try btch-downloader
+    try {
+        console.log('[abDownloader - IG] Trying btch-downloader...');
+        const btch = await import('btch-downloader');
+        if (btch && typeof btch.igdl === 'function') {
+            const res = await btch.igdl(url);
+            let mediaUrls = [];
+
+            if (Array.isArray(res)) {
+                mediaUrls = res.map(v => v.url || v.download_link || v).filter(Boolean);
+            } else if (res && typeof res === 'object') {
+                if (res.result && Array.isArray(res.result)) {
+                    mediaUrls = res.result.map(v => v.url || v.download_link || v).filter(Boolean);
+                } else if (res.url) {
+                    mediaUrls = [res.url];
+                } else if (res.result) {
+                    mediaUrls = [res.result];
+                }
+            } else if (typeof res === 'string') {
+                mediaUrls = [res];
+            }
+
+            if (mediaUrls.length > 1) {
+                return { slide: mediaUrls };
+            } else if (mediaUrls.length === 1) {
+                return { single: mediaUrls[0] };
+            }
+        }
+    } catch (e) {
+        console.warn('[abDownloader - IG] btch-downloader failed:', e.message);
+    }
+
+    // 2. Try Tiklydown API
+    try {
+        console.log('[abDownloader - IG] Trying Tiklydown API...');
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        const res = await fetch(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(url)}`, {
+            timeout: 15000
+        });
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1';
+        
+        if (res.ok) {
+            const json = await res.json();
+            if (json && json.result) {
+                const result = json.result;
+                if (Array.isArray(result)) {
+                    const mediaUrls = result.map(v => v.url || v.download_link || v).filter(Boolean);
+                    if (mediaUrls.length > 1) return { slide: mediaUrls };
+                    if (mediaUrls.length === 1) return { single: mediaUrls[0] };
+                } else if (result.video) {
+                    return { single: result.video };
+                } else if (result.url) {
+                    return { single: result.url };
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[abDownloader - IG] Tiklydown failed:', e.message);
+    }
+
+    // 3. Original indown.io API Fallback
+    try {
+        console.log('[abDownloader - IG] Trying indown.io fallback...');
+        const res = await fetch('https://indown.io/api/post', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            body: JSON.stringify({ link: url, locale: 'id', index: 0 })
+        });
+        if (res.ok) {
+            const json = await res.json();
+            if (json.url) return { single: json.url };
+            if (json.urls?.length > 0) return { slide: json.urls };
+        }
+    } catch (e) {
+        console.warn('[abDownloader - IG] indown.io fallback failed:', e.message);
+    }
+
+    throw new Error('Semua API unduhan Instagram gagal.');
 }
 
 async function tiktokFallback(url) {

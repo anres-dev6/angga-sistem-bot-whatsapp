@@ -28,24 +28,167 @@ function detectPlatform(url) {
     return null;
 }
 
+async function downloadFileFromUrl(url, outputPath) {
+    const response = await axios({
+        url,
+        method: 'GET',
+        responseType: 'stream',
+        timeout: 60000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+    });
+
+    const writer = fs.createWriteStream(outputPath);
+    response.data.pipe(writer);
+
+    return new Promise((resolve, reject) => {
+        writer.on('finish', () => resolve(outputPath));
+        writer.on('error', reject);
+    });
+}
+
+async function tryDownloadInstagramApi(url, timestamp) {
+    // 1. Try btch-downloader
+    try {
+        console.log('[Downloader - IG] Trying btch-downloader...');
+        const btch = await import('btch-downloader');
+        if (btch && typeof btch.igdl === 'function') {
+            const res = await btch.igdl(url);
+            let mediaUrl = null;
+            if (Array.isArray(res)) {
+                mediaUrl = res.find(v => v.url || v.download_link)?.url || res[0];
+            } else if (res && typeof res === 'object') {
+                if (res.result && Array.isArray(res.result)) {
+                    mediaUrl = res.result[0]?.url || res.result[0]?.download_link;
+                } else if (res.url) {
+                    mediaUrl = res.url;
+                } else if (res.result) {
+                    mediaUrl = res.result;
+                }
+            } else if (typeof res === 'string') {
+                mediaUrl = res;
+            }
+
+            if (mediaUrl && mediaUrl.startsWith('http')) {
+                const ext = mediaUrl.includes('.jpg') || mediaUrl.includes('.jpeg') || mediaUrl.includes('.png') ? 'jpg' : 'mp4';
+                const filePath = path.join(DOWNLOAD_DIR, `instagram_${timestamp}.${ext}`);
+                await downloadFileFromUrl(mediaUrl, filePath);
+                const stats = fs.statSync(filePath);
+                return {
+                    platform: 'instagram',
+                    filePath,
+                    title: 'Instagram Media',
+                    size: (stats.size / (1024 * 1024)).toFixed(2)
+                };
+            }
+        }
+    } catch (err) {
+        console.warn('[Downloader - IG] btch-downloader failed:', err.message);
+    }
+
+    // 2. Try Tiklydown API
+    try {
+        console.log('[Downloader - IG] Trying Tiklydown API...');
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        const response = await axios.get(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(url)}`, {
+            timeout: 15000
+        });
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '1';
+
+        const json = response.data;
+        let mediaUrl = null;
+        if (json && json.result) {
+            const result = json.result;
+            if (Array.isArray(result)) {
+                mediaUrl = result[0]?.url || result[0];
+            } else if (result.video) {
+                mediaUrl = mediaUrl = result.video;
+            } else if (result.url) {
+                mediaUrl = result.url;
+            } else if (typeof result === 'string') {
+                mediaUrl = result;
+            }
+        }
+
+        if (mediaUrl && mediaUrl.startsWith('http')) {
+            const ext = mediaUrl.includes('.jpg') || mediaUrl.includes('.jpeg') || mediaUrl.includes('.png') ? 'jpg' : 'mp4';
+            const filePath = path.join(DOWNLOAD_DIR, `instagram_${timestamp}.${ext}`);
+            await downloadFileFromUrl(mediaUrl, filePath);
+            const stats = fs.statSync(filePath);
+            return {
+                platform: 'instagram',
+                filePath,
+                title: 'Instagram Media',
+                size: (stats.size / (1024 * 1024)).toFixed(2)
+            };
+        }
+    } catch (err) {
+        console.warn('[Downloader - IG] Tiklydown failed:', err.message);
+    }
+
+    // 3. Try Owner's Dashboard API fallback
+    try {
+        console.log('[Downloader - IG] Trying Owner API...');
+        const response = await axios.get(`https://api-g4nggaa.biz.id/api/download/instagram?url=${encodeURIComponent(url)}`, {
+            timeout: 15000
+        });
+        const json = response.data;
+        let mediaUrl = null;
+        if (json && json.result) {
+            mediaUrl = json.result.url || json.result.download_link || json.result;
+        }
+
+        if (mediaUrl && mediaUrl.startsWith('http')) {
+            const ext = mediaUrl.includes('.jpg') || mediaUrl.includes('.jpeg') || mediaUrl.includes('.png') ? 'jpg' : 'mp4';
+            const filePath = path.join(DOWNLOAD_DIR, `instagram_${timestamp}.${ext}`);
+            await downloadFileFromUrl(mediaUrl, filePath);
+            const stats = fs.statSync(filePath);
+            return {
+                platform: 'instagram',
+                filePath,
+                title: 'Instagram Media',
+                size: (stats.size / (1024 * 1024)).toFixed(2)
+            };
+        }
+    } catch (err) {
+        console.warn('[Downloader - IG] Owner API failed:', err.message);
+    }
+
+    throw new Error('Instagram: Gagal mendownload media via API. Link mungkin private atau tidak valid.');
+}
+
 /**
  * Download media using yt-dlp
  * @param {string} url - Media URL
  * @param {Function} onProgress - Progress callback (optional)
  * @returns {Promise<{platform: string, filePath: string, title: string}>}
  */
-export function downloadMedia(url, onProgress = null) {
+export async function downloadMedia(url, onProgress = null) {
     // Check for TikTok Photo/Slide (yt-dlp often fails, handled by V2)
     if (url.includes('tiktok.com') && url.includes('/photo/')) {
         throw new Error('TikTok Slide/Photo tidak didukung di AutoDL V1 (Silakan gunakan AutoDL V2).');
     }
 
-    return new Promise((resolve, reject) => {
-        const platform = detectPlatform(url);
-        if (!platform) {
-            return reject(new Error("Platform tidak didukung. Hanya YouTube, Instagram, Facebook, dan Douyin."));
-        }
+    const platform = detectPlatform(url);
+    if (!platform) {
+        throw new Error("Platform tidak didukung. Hanya YouTube, Instagram, Facebook, dan Douyin.");
+    }
 
+    const timestamp = Date.now();
+
+    // INTERCEPT INSTAGRAM TO USE API FALLBACK DIRECTLY (Bypasses local yt-dlp block)
+    if (platform === 'instagram') {
+        try {
+            const result = await tryDownloadInstagramApi(url, timestamp);
+            return result;
+        } catch (apiErr) {
+            console.warn('[Downloader - IG] API strategy failed, falling back to local yt-dlp...', apiErr.message);
+            // Proceed to yt-dlp fallback
+        }
+    }
+
+    return new Promise((resolve, reject) => {
         const ytdlpCmd = getYtdlpPath();
         if (ytdlpCmd.includes(path.sep) && !fs.existsSync(ytdlpCmd)) {
             return reject(new Error("yt-dlp binary tidak ditemukan. Pastikan yt-dlp.exe ada di folder Lib/"));

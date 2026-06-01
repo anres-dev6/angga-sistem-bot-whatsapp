@@ -27,9 +27,39 @@ export default async function tiktok(url) {
         }
     }
 
-    if (!aweme_id) throw new Error('TikTok: URL tidak valid (ID video tidak ditemukan)');
+    const timestamp = Date.now();
+    const vidId = aweme_id || timestamp;
 
-    // Strategy 1: TikWM API (paling stabil)
+    // Strategy 1: btch-downloader (ttdl)
+    try {
+        console.log('[TikTok] Trying btch-downloader...');
+        const btch = await import('btch-downloader');
+        if (btch && typeof btch.ttdl === 'function') {
+            const res = await btch.ttdl(finalUrl);
+            if (res && typeof res === 'object') {
+                if (res.images && res.images.length > 0) {
+                    return {
+                        type: 'image-slide',
+                        images: res.images,
+                        private: true,
+                        filename: `tiktok_slide_${vidId}`
+                    };
+                }
+                const downloadUrl = res.video || res.nowm || res.url;
+                if (downloadUrl && downloadUrl.startsWith('http')) {
+                    return {
+                        type: 'video',
+                        url: downloadUrl,
+                        filename: `tiktok_${vidId}.mp4`
+                    };
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[TikTok] btch-downloader failed:', e.message);
+    }
+
+    // Strategy 2: TikWM API (pre-existing strategy)
     try {
         const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(finalUrl)}&count=12&cursor=0&web=1&hd=1`;
         const res = await fetch(apiUrl, {
@@ -59,7 +89,7 @@ export default async function tiktok(url) {
                 return {
                     type: 'video',
                     url: videoUrl.startsWith('http') ? videoUrl : `https://www.tikwm.com${videoUrl}`,
-                    filename: `tiktok_${data.id || aweme_id}.mp4`
+                    filename: `tiktok_${data.id || vidId}.mp4`
                 };
             }
         }
@@ -67,48 +97,50 @@ export default async function tiktok(url) {
         console.warn('[TikTok] TikWM failed, trying internal API:', e.message);
     }
 
-    // Strategy 2: TikTok internal API
-    try {
-        const api = `https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/aweme/detail/?aweme_id=${aweme_id}&device_platform=webapp&aid=1988`;
-        const res = await fetch(api, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Referer': 'https://www.tiktok.com/'
-            }
-        });
+    // Strategy 3: TikTok internal API
+    if (aweme_id) {
+        try {
+            const api = `https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/aweme/detail/?aweme_id=${aweme_id}&device_platform=webapp&aid=1988`;
+            const res = await fetch(api, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Referer': 'https://www.tiktok.com/'
+                }
+            });
 
-        if (res.ok) {
-            const text = await res.text();
-            if (text.trim().length > 10) {
-                const json = JSON.parse(text);
-                const item = json?.aweme_detail;
+            if (res.ok) {
+                const text = await res.text();
+                if (text.trim().length > 10) {
+                    const json = JSON.parse(text);
+                    const item = json?.aweme_detail;
 
-                if (item) {
-                    if (item.image_post_info) {
-                        return {
-                            type: 'image-slide',
-                            private: true,
-                            images: item.image_post_info.images.map(v => v.display_image.url_list[0])
-                        };
-                    }
+                    if (item) {
+                        if (item.image_post_info) {
+                            return {
+                                type: 'image-slide',
+                                private: true,
+                                images: item.image_post_info.images.map(v => v.display_image.url_list[0])
+                            };
+                        }
 
-                    const videoUrl = item.video?.play_addr?.url_list?.find(v => !v.includes('watermark')) || item.video?.play_addr?.url_list?.[0];
-                    if (videoUrl) {
-                        return {
-                            type: 'video',
-                            url: videoUrl,
-                            filename: `tiktok_${aweme_id}.mp4`
-                        };
+                        const videoUrl = item.video?.play_addr?.url_list?.find(v => !v.includes('watermark')) || item.video?.play_addr?.url_list?.[0];
+                        if (videoUrl) {
+                            return {
+                                type: 'video',
+                                url: videoUrl,
+                                filename: `tiktok_${aweme_id}.mp4`
+                            };
+                        }
                     }
                 }
             }
+        } catch (e) {
+            console.warn('[TikTok] Internal API failed:', e.message);
         }
-    } catch (e) {
-        console.warn('[TikTok] Internal API failed:', e.message);
     }
 
-    // Strategy 3: yt-dlp fallback
+    // Strategy 4: yt-dlp fallback
     try {
         console.log('[TikTok] Trying yt-dlp fallback...');
         const result = await downloadMedia(url);
@@ -119,7 +151,7 @@ export default async function tiktok(url) {
             type: 'video',
             buffer,
             url: null,
-            filename: `tiktok_${aweme_id}.mp4`
+            filename: `tiktok_${vidId}.mp4`
         };
     } catch (e) {
         console.warn('[TikTok] yt-dlp fallback failed:', e.message);

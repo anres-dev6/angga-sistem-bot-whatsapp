@@ -43,6 +43,53 @@ export default {
 
             console.log(`[DL] Downloading from ${platform.name}:`, url);
 
+            // Intercept new platforms to resolve and download directly via V3 resolvers
+            const v3Platforms = ['capcut', 'canva', 'melolo', 'pinedrama', 'douyin'];
+            if (v3Platforms.includes(platform.platform)) {
+                await sock.sendMessage(from, {
+                    text: `⬇️ *Mengunduh dari ${platform.name}...*\n\n_Mohon tunggu, proses otomatis sedang berlangsung..._`,
+                    edit: progressMsg.key
+                });
+
+                try {
+                    const resolverModule = await import(`../../autodlv3/resolvers/${platform.platform}.js`);
+                    const resolver = resolverModule.default;
+                    const result = await resolver(url);
+
+                    if (result) {
+                        let buffer;
+                        if (result.buffer) {
+                            buffer = result.buffer;
+                        } else if (result.url) {
+                            const axios = (await import('axios')).default;
+                            const response = await axios.get(result.url, { responseType: 'arraybuffer', timeout: 60000 });
+                            buffer = Buffer.from(response.data);
+                        }
+
+                        if (buffer) {
+                            const caption = `${emoji} *${platform.name} Downloader*\n\n` +
+                                `📦 Size: ${(buffer.length / (1024 * 1024)).toFixed(2)}MB\n` +
+                                `✅ Downloaded successfully`;
+
+                            await sock.sendMessage(from, {
+                                video: buffer,
+                                caption: caption,
+                                mimetype: 'video/mp4'
+                            }, { quoted: msg });
+
+                            await sock.sendMessage(from, {
+                                text: '✅ *Selesai!*',
+                                edit: progressMsg.key
+                            });
+                            return;
+                        }
+                    }
+                } catch (v3Err) {
+                    console.error(`[DL - V3 Platform] Failed resolving ${platform.platform}:`, v3Err);
+                    throw new Error(`Gagal memproses link ${platform.name}: ${v3Err.message}`);
+                }
+            }
+
             // Try yt-dlp first
             try {
                 // Get video info

@@ -198,6 +198,69 @@ export default async function handleMessage(sock, msg) {
             console.error('[Handler] Confess forwarding router error:', err);
         }
 
+        // ============================================
+        //    ANRES-DEV6 CLICK-TO-CHAT WELCOME TRIGGER
+        // ============================================
+        const welcomeTrigger = body.toLowerCase().trim();
+        if (
+            welcomeTrigger === 'halo saya ingin mencoba bot anres-dev6' ||
+            welcomeTrigger.includes('halo saya ingin mencoba bot anres-dev6') ||
+            welcomeTrigger.includes('coba bot anres-dev6') ||
+            welcomeTrigger.includes('mencoba bot anres-dev6') ||
+            welcomeTrigger.includes('mencoba bot anres dev6')
+        ) {
+            console.log('[Handler] Triggering custom welcome for ANRES-DEV6');
+            
+            const pushName = m.pushName || 'Kak';
+            
+            const toMono = (str) => {
+                return str.split('').map(c => {
+                    if (c >= 'a' && c <= 'z') return String.fromCodePoint(0x1D670 + (c.charCodeAt(0) - 97));
+                    if (c >= 'A' && c <= 'Z') return String.fromCodePoint(0x1D670 + (c.charCodeAt(0) - 65) - 32);
+                    if (c >= '0' && c <= '9') return String.fromCodePoint(0x1D7F6 + (c.charCodeAt(0) - 48));
+                    return c;
+                }).join('');
+            };
+
+            const greetingText = `👋 Halo Kak *${pushName}*, Selamat datang di *ANRES-DEV*! 🌟\n\n` +
+                `Senang sekali Kakak berkunjung ke layanan bot WhatsApp kami. Ada yang bisa kami bantu hari ini? 😊\n\n` +
+                `Berikut adalah *Menu Layanan Utama* yang dapat Kakak coba:\n\n` +
+                `🏠 ${toMono('MAIN MENU')} » ${toMono('.menu main')}\n` +
+                `🎨 ${toMono('STICKER CREATOR')} » ${toMono('.menu sticker')}\n` +
+                `📥 ${toMono('AUTO DOWNLOADER')} » ${toMono('.menu download')}\n` +
+                `🛠️ ${toMono('TOOLS / UTILITIES')} » ${toMono('.menu tools')}\n` +
+                `🔮 ${toMono('PRIMBON / FUN')} » ${toMono('.menu primbon')}\n` +
+                `🎮 ${toMono('FUN GAMES')} » ${toMono('.menu game')}\n` +
+                `📖 ${toMono('TOBAT / AGAMA')} » ${toMono('.menu tobat')}\n` +
+                `🔄 ${toMono('CONVERTER')} » ${toMono('.menu converter')}\n` +
+                `👥 ${toMono('GRUP / COMMUNITY')} » ${toMono('.menu grup')}\n` +
+                `ℹ️ ${toMono('INFO & STATUS')} » ${toMono('.menu info')}\n\n` +
+                `━━━━━━━━━━━━━━━━━━━━━\n` +
+                `💡 *Tip Penggunaan:*\n` +
+                `👉 Ketik *${toMono('.menu')}* untuk melihat daftar kategori secara interaktif.\n` +
+                `👉 Ketik *${toMono('.menu all')}* untuk menampilkan seluruh daftar perintah bot.\n` +
+                `👉 Ketik *${toMono('.menu [nama_kategori]')}* untuk melihat perintah detail per kategori.\n\n` +
+                `Selamat mencoba dan semoga harimu menyenangkan! ✨`;
+
+            try {
+                const fs = await import('fs');
+                const path = await import('path');
+                const menuImagePath = path.join(process.cwd(), 'data', 'anres-menu.png');
+
+                if (fs.default.existsSync(menuImagePath)) {
+                    await sock.sendMessage(from, {
+                        image: fs.default.readFileSync(menuImagePath),
+                        caption: greetingText
+                    }, { quoted: m });
+                } else {
+                    await sock.sendMessage(from, { text: greetingText }, { quoted: m });
+                }
+                return; // Intercept and finish processing
+            } catch (err) {
+                console.error('[Handler] Custom welcome message error:', err);
+            }
+        }
+
         // =====================================
         //    Handle Button Response (YT-DLP)
         // =====================================
