@@ -204,8 +204,7 @@ export default {
                 .rotate() // Auto-orient phone photos based on EXIF
                 .ensureAlpha() // Ensure alpha transparency exists
                 .resize(512, 512, {
-                    fit: 'contain',
-                    background: { r: 0, g: 0, b: 0, alpha: 0 } // Add transparent border padding
+                    fit: 'cover'
                 })
                 .composite([{ input: Buffer.from(svgOverlay), blend: 'over' }])
                 .webp({ quality: 90 })

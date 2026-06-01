@@ -14,8 +14,7 @@ export async function imageToWebp(buffer) {
         .rotate() // Auto-orient based on EXIF orientation metadata
         .ensureAlpha() // Ensure alpha channel exists for perfect transparent borders
         .resize(512, 512, {
-            fit: 'contain',
-            background: { r: 0, g: 0, b: 0, alpha: 0 }
+            fit: 'cover'
         })
         .webp({ quality: 85, effort: 6 })
         .toBuffer();
