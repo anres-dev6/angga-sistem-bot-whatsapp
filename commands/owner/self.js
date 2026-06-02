@@ -4,47 +4,33 @@ export default {
     name: 'self',
     aliases: ['selfmode', 'public', 'openm', 'safem', 'safemode'],
     tags: ['owner'],
-    description: 'Atur bot merespon anggota grup atau hanya owner (menggantikan modeaman/openm)',
+    description: 'Atur bot merespon anggota grup atau hanya owner',
     access: {
         owner: true,
         group: false,
         private: false
     },
-    run: async (sock, msg, args, { isGroup }) => {
+    run: async (sock, msg, args) => {
         const from = msg.key.remoteJid;
         const mode = args[0]?.toLowerCase();
 
         if (mode === 'on') {
-            let groupName = '';
-            if (isGroup) {
-                try {
-                    const metadata = await sock.groupMetadata(from);
-                    groupName = metadata.subject || '';
-                } catch (error) {
-                    console.error('[Self Mode] Failed to read group metadata:', error.message);
-                }
-            }
-
-            const saved = enableSelfMode(isGroup ? from : null, groupName);
+            const saved = enableSelfMode(null); // Always global
             return sock.sendMessage(from, {
-                text: saved
-                    ? '✅ *Self Mode ON*\n\nBot hanya merespon owner. Fitur owner tetap aman.'
-                    : '❌ Gagal menyimpan Self Mode.'
+                text: saved ? 'self mode on' : '❌ Gagal menyimpan Self Mode.'
             }, { quoted: msg });
         }
 
         if (mode === 'off') {
-            const saved = disableSelfMode(isGroup ? from : null);
+            const saved = disableSelfMode(null); // Always global
             return sock.sendMessage(from, {
-                text: saved
-                    ? '✅ *Self Mode OFF*\n\nBot sekarang bisa merespon anggota grup untuk fitur non-owner.'
-                    : '❌ Gagal menyimpan Self Mode.'
+                text: saved ? 'self mode off' : '❌ Gagal menyimpan Self Mode.'
             }, { quoted: msg });
         }
 
-        const enabled = isSelfModeEnabled(isGroup ? from : null);
+        const enabled = isSelfModeEnabled(null); // Check global status
         return sock.sendMessage(from, {
-            text: `🤖 *Self Mode Status*\n\nStatus: ${enabled ? 'ON ✅' : 'OFF ❌'}\n\nCara pakai:\n- .self on  = hanya owner\n- .self off = anggota grup bisa pakai fitur non-owner`
+            text: `self mode status: ${enabled ? 'on' : 'off'}`
         }, { quoted: msg });
     }
 };
