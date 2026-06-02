@@ -83,8 +83,13 @@ export default {
                 }, { quoted: m });
             }
 
-            const botJid = sock.decodeJid ? sock.decodeJid(sock.user.id) : (sock.user.id.split(':')[0] + '@s.whatsapp.net');
-            if (numbersToKick.includes(botJid)) {
+            const botNumber = (sock.user?.id || sock.user?.jid || '').split(':')[0].split('@')[0].replace(/\D/g, '');
+            const hasBot = numbersToKick.some(jid => {
+                const num = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
+                return num === botNumber;
+            });
+
+            if (hasBot) {
                 return sock.sendMessage(from, {
                     text: 'dancok ojo di kick'
                 }, { quoted: m });
