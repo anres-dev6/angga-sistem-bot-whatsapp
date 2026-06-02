@@ -1,3 +1,5 @@
+import fetch from 'node-fetch';
+
 // Global state for cerdas cermat game
 if (!global.cerdasGame) {
     global.cerdasGame = {};

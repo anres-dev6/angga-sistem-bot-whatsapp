@@ -1,3 +1,5 @@
+import fetch from 'node-fetch';
+
 export default {
     name: 'artinama',
     aliases: ['artinama', 'arti'],

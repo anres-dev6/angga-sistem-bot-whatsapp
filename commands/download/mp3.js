@@ -1,4 +1,5 @@
 import { downloadMediaMessage } from 'baileys';
+import fetch from 'node-fetch';
 
 export default {
     name: 'mp3',

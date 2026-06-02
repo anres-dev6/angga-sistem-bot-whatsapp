@@ -1,3 +1,5 @@
+import fetch from 'node-fetch';
+
 export default {
     name: 'kecocokannama',
     aliases: ['kecocokannama', 'cocok', 'jodoh'],
