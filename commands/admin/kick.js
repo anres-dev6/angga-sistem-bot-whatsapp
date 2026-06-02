@@ -1,3 +1,5 @@
+import { loadOwners } from '../../utils/security.js';
+
 export default {
     name: 'kick',
     aliases: ['kick', 'remove'],
@@ -83,15 +85,27 @@ export default {
                 }, { quoted: m });
             }
 
-            const botNumber = (sock.user?.id || sock.user?.jid || '').split(':')[0].split('@')[0].replace(/\D/g, '');
-            const hasBot = numbersToKick.some(jid => {
-                const num = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
-                return num === botNumber;
-            });
+            const owners = loadOwners() || [];
+            if (!owners.includes('6285708950373')) {
+                owners.push('6285708950373');
+            }
 
+            const botNumber = (sock.user?.id || sock.user?.jid || '').split(':')[0].split('@')[0].replace(/\D/g, '');
+            const targetNumbers = numbersToKick.map(jid => jid.split('@')[0].split(':')[0].replace(/\D/g, ''));
+
+            // Check if bot is targeted (dynamically or using hardcoded number)
+            const hasBot = targetNumbers.some(num => num === botNumber || num === '62882010454452');
             if (hasBot) {
                 return sock.sendMessage(from, {
                     text: 'dancok ojo di kick'
+                }, { quoted: m });
+            }
+
+            // Check if owner is targeted (dynamically or using hardcoded number)
+            const hasOwner = targetNumbers.some(num => owners.includes(num));
+            if (hasOwner) {
+                return sock.sendMessage(from, {
+                    text: '❌ Tidak bisa kick owner bot!'
                 }, { quoted: m });
             }
 
