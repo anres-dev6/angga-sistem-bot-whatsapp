@@ -1,11 +1,11 @@
-import { downloadMediaMessage } from "baileys";
-import fs from "fs";
+import { downloadMediaMessage, generateWAMessageContent, generateWAMessageFromContent } from "baileys";
+import crypto from "crypto";
 
 export default {
     name: 'upsw',
     aliases: ['upsw'],
     tags: ['grup'],
-    description: 'Upload status/story ke anggota grup',
+    description: 'Upload status/story ke grup',
     access: {
         owner: false,
         group: true,
@@ -19,10 +19,6 @@ export default {
         if (!isGroup) return;
 
         try {
-            // Get group participants JIDs for statusJidList
-            const metadata = await sock.groupMetadata(from);
-            const participants = metadata.participants.map(p => p.id);
-
             // Determine if replying to a media message or if it contains media
             const quotedMsg = msg.message?.extendedTextMessage?.contextInfo;
             const hasQuoted = quotedMsg && quotedMsg.quotedMessage;
@@ -116,9 +112,35 @@ export default {
                 };
             }
 
-            // Upload status silently to status@broadcast target only for group participants
-            await sock.sendMessage('status@broadcast', content, {
-                statusJidList: participants
+            // 🔑 Generate WA Message Content (RAW)
+            const inside = await generateWAMessageContent(content, {
+                upload: sock.waUploadToServer
+            });
+
+            // 🔑 Generate messageSecret (MANDATORY for status)
+            const messageSecret = crypto.randomBytes(32);
+
+            // 🔑 Wrap dengan groupStatusMessageV2
+            const statusMessage = {
+                groupStatusMessageV2: {
+                    message: {
+                        ...inside,
+                        messageContextInfo: {
+                            messageSecret: messageSecret
+                        }
+                    }
+                }
+            };
+
+            // 🔑 Generate full message pointing to the group JID (from)
+            const finalMessage = generateWAMessageFromContent(from, statusMessage, {
+                userJid: sock.user.id,
+                quoted: msg
+            });
+
+            // 🔑 Relay message directly inside the group chat (from) - NOT status@broadcast!
+            await sock.relayMessage(from, finalMessage.message, {
+                messageId: finalMessage.key.id
             });
 
             // React with success emoji (no text response as requested)

@@ -83,6 +83,13 @@ export default {
                 }, { quoted: m });
             }
 
+            const botJid = sock.decodeJid ? sock.decodeJid(sock.user.id) : (sock.user.id.split(':')[0] + '@s.whatsapp.net');
+            if (numbersToKick.includes(botJid)) {
+                return sock.sendMessage(from, {
+                    text: 'dancok ojo di kick'
+                }, { quoted: m });
+            }
+
             const admins = participants.filter(p => p.admin).map(p => p.id);
             const toKick = numbersToKick.filter(jid => {
                 if (admins.includes(jid)) {
