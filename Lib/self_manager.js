@@ -1,10 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SELF_FILE = path.join(__dirname, '../data/self_mode.json');
+const authDir = process.env.AUTH_DIR || './auth';
+const SELF_FILE = path.join(path.resolve(authDir), 'self_mode.json');
 const DATA_DIR = path.dirname(SELF_FILE);
 
 if (!fs.existsSync(DATA_DIR)) {
