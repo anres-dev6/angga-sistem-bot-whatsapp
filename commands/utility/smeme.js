@@ -2,8 +2,18 @@ import { downloadContentFromMessage } from 'baileys';
 import sharp from 'sharp';
 import { addStickerMetadata } from '../../Lib/sticker.js';
 import { validateFonts } from '../../utils/fontHelper.js';
+import fs from 'fs';
+import path from 'path';
+import https from 'https';
 
-// Word-wrapping helper for optimal layout in 1:1 square canvas
+// Emoji Split Regex and length logic
+const emojiRegex = /(\p{Emoji_Presentation}+(?:\u{200D}\p{Emoji_Presentation}+)*|[\u{1F1E6}-\u{1F1FF}]{2}|\p{Emoji}\uFE0F)/gu;
+
+function getVisualLength(text) {
+    if (!text) return 0;
+    return text.replace(emojiRegex, 'X').length;
+}
+
 function wrapText(text, maxCharsPerLine = 13) {
     if (!text) return [];
     const words = text.split(/\s+/);
@@ -11,8 +21,10 @@ function wrapText(text, maxCharsPerLine = 13) {
     let currentLine = '';
     
     for (const word of words) {
-        if ((currentLine + ' ' + word).trim().length <= maxCharsPerLine) {
-            currentLine = (currentLine + ' ' + word).trim();
+        const currentLineLen = getVisualLength(currentLine);
+        const wordLen = getVisualLength(word);
+        if ((currentLineLen + (currentLine ? 1 : 0) + wordLen) <= maxCharsPerLine) {
+            currentLine = currentLine ? currentLine + ' ' + word : word;
         } else {
             if (currentLine) lines.push(currentLine);
             currentLine = word;
@@ -20,6 +32,153 @@ function wrapText(text, maxCharsPerLine = 13) {
     }
     if (currentLine) lines.push(currentLine);
     return lines.slice(0, 3); // Limit to maximum 3 lines per block to preserve focal object
+}
+
+// Downloader helper
+function downloadFile(url, dest) {
+    return new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+            if (res.statusCode !== 200) {
+                return reject(new Error(`Failed to download: HTTP ${res.statusCode}`));
+            }
+            const file = fs.createWriteStream(dest);
+            res.pipe(file);
+            file.on('finish', () => {
+                file.close();
+                resolve();
+            });
+        }).on('error', reject);
+    });
+}
+
+function getEmojiCodePoint(emoji) {
+    const codePoints = [];
+    for (let i = 0; i < emoji.length; i++) {
+        const code = emoji.codePointAt(i);
+        if (code > 0xffff) {
+            i++;
+        }
+        codePoints.push(code.toString(16).toLowerCase());
+    }
+    return codePoints.filter(cp => cp !== 'fe0f').join('-');
+}
+
+async function getEmojiDataUri(emoji) {
+    try {
+        const cp = getEmojiCodePoint(emoji);
+        const emojiDir = path.resolve('./assets/emojis');
+        if (!fs.existsSync(emojiDir)) {
+            fs.mkdirSync(emojiDir, { recursive: true });
+        }
+        const localPath = path.join(emojiDir, `${cp}.svg`);
+
+        if (!fs.existsSync(localPath)) {
+            const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/${cp}.svg`;
+            // 3-second timeout for downloading
+            await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error('Timeout')), 3000);
+                downloadFile(url, localPath).then(() => {
+                    clearTimeout(timer);
+                    resolve();
+                }).catch(err => {
+                    clearTimeout(timer);
+                    reject(err);
+                });
+            });
+        }
+
+        const svgContent = fs.readFileSync(localPath, 'utf8');
+        const base64 = Buffer.from(svgContent).toString('base64');
+        return `data:image/svg+xml;base64,${base64}`;
+    } catch (err) {
+        console.error(`[Emoji Cache] Failed for ${emoji}:`, err.message);
+        return null;
+    }
+}
+
+async function measureTextWidth(text, fontSize, fontName) {
+    const trimmed = text.trim();
+    if (!trimmed) {
+        return text.length * fontSize * 0.25; // Space width estimation
+    }
+
+    const escaped = trimmed
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+    const svg = `
+    <svg width="2000" height="200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" fill="none" />
+        <text x="10" y="100" font-family="${fontName}" font-weight="900" font-size="${fontSize}" fill="#ffffff" text-anchor="start" dy="0.35em">${escaped}</text>
+    </svg>
+    `;
+
+    try {
+        const { info } = await sharp(Buffer.from(svg))
+            .trim()
+            .toBuffer({ resolveWithObject: true });
+        
+        const spacesCount = text.length - trimmed.length;
+        return info.width + spacesCount * fontSize * 0.25;
+    } catch (err) {
+        // Fallback estimation
+        return text.length * fontSize * 0.45;
+    }
+}
+
+async function renderLine(lineText, fontSize, y, fontName) {
+    const parts = lineText.split(emojiRegex);
+    const widths = [];
+    const emojiUris = [];
+
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (i % 2 === 0) {
+            const w = await measureTextWidth(part, fontSize, fontName);
+            widths.push(w);
+            emojiUris.push(null);
+        } else {
+            widths.push(fontSize * 1.05); // Width allocated for emoji
+            const dataUri = await getEmojiDataUri(part);
+            emojiUris.push(dataUri);
+        }
+    }
+
+    const totalWidth = widths.reduce((sum, w) => sum + w, 0);
+    let currentX = 256 - totalWidth / 2;
+    let svgContent = '';
+    const strokeWidth = Math.max(3.5, fontSize * 0.11);
+
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const width = widths[i];
+
+        if (i % 2 === 0) {
+            if (part) {
+                const escaped = part
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&apos;');
+                
+                svgContent += `<text x="${currentX}" y="${y}" font-family="${fontName}" font-weight="900" font-size="${fontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="start" dy="0.35em" style="font-size: ${fontSize}px; stroke-width: ${strokeWidth}px; font-family: ${fontName}; font-weight: 900;">${escaped}</text>\n`;
+            }
+        } else {
+            const dataUri = emojiUris[i];
+            if (dataUri) {
+                const emojiY = y - fontSize / 2;
+                const emojiX = currentX + (width - fontSize) / 2;
+                svgContent += `<image x="${emojiX}" y="${emojiY}" width="${fontSize}" height="${fontSize}" href="${dataUri}" />\n`;
+            }
+        }
+        currentX += width;
+    }
+
+    return svgContent;
 }
 
 export default {
@@ -86,7 +245,7 @@ export default {
         }
 
         // Apply length constraints to preserve high quality readability
-        if (topText.length > 50 || bottomText.length > 50) {
+        if (getVisualLength(topText) > 50 || getVisualLength(bottomText) > 50) {
             return sock.sendMessage(from, {
                 text: "❌ Teks terlalu panjang! Maksimal 50 karakter per baris agar stiker meme tetap terbaca dengan jelas."
             }, { quoted: msg });
@@ -130,7 +289,7 @@ export default {
             // 3. Calculate optimized font sizing based on length & number of lines
             const getFontSize = (lines) => {
                 if (lines.length === 0) return 0;
-                const maxLen = Math.max(...lines.map(l => l.length));
+                const maxLen = Math.max(...lines.map(l => getVisualLength(l)));
                 // Proportional base size (each letter of narrow bold fonts is approx 0.45 - 0.50 of font size in width)
                 let size = Math.floor(480 / (maxLen * 0.5));
                 
@@ -155,19 +314,11 @@ export default {
             // Render top text lines inline
             if (topLines.length > 0) {
                 const topLineHeight = topFontSize * 1.1;
-                topLines.forEach((line, idx) => {
+                for (let idx = 0; idx < topLines.length; idx++) {
+                    const line = topLines[idx];
                     const y = 25 + idx * topLineHeight + topLineHeight / 2;
-                    const escaped = line
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;')
-                        .replace(/'/g, '&apos;');
-                    
-                    const strokeWidth = Math.max(3.5, topFontSize * 0.11);
-                    // Bulletproof: unitless attributes AND inline CSS style mapping guarantees correct scaling on ALL systems
-                    textOverlaySvg += `<text x="256" y="${y}" font-family="${fontName}" font-weight="900" font-size="${topFontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em" style="font-size: ${topFontSize}px; stroke-width: ${strokeWidth}px; font-family: ${fontName}; font-weight: 900;">${escaped}</text>\n`;
-                });
+                    textOverlaySvg += await renderLine(line, topFontSize, y, fontName);
+                }
             }
 
             // Render bottom text lines inline (stacked upwards from the safe bottom margin)
@@ -176,19 +327,11 @@ export default {
                 const totalHeight = bottomLines.length * bottomLineHeight;
                 const startY = 490 - totalHeight;
 
-                bottomLines.forEach((line, idx) => {
+                for (let idx = 0; idx < bottomLines.length; idx++) {
+                    const line = bottomLines[idx];
                     const y = startY + idx * bottomLineHeight + bottomLineHeight / 2;
-                    const escaped = line
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;')
-                        .replace(/'/g, '&apos;');
-
-                    const strokeWidth = Math.max(3.5, bottomFontSize * 0.11);
-                    // Bulletproof: unitless attributes AND inline CSS style mapping guarantees correct scaling on ALL systems
-                    textOverlaySvg += `<text x="256" y="${y}" font-family="${fontName}" font-weight="900" font-size="${bottomFontSize}" fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" stroke-linejoin="round" paint-order="stroke fill" text-anchor="middle" dy="0.35em" style="font-size: ${bottomFontSize}px; stroke-width: ${strokeWidth}px; font-family: ${fontName}; font-weight: 900;">${escaped}</text>\n`;
-                });
+                    textOverlaySvg += await renderLine(line, bottomFontSize, y, fontName);
+                }
             }
 
             // Build transparent SVG overlay card (crucial: viewBox is required for perfect 1:1 scaling across different systems)
@@ -226,3 +369,4 @@ export default {
         }
     }
 };
+

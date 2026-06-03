@@ -2,6 +2,7 @@ import { downloadMediaMessage } from 'baileys'
 import { uploadMedia } from '../../Lib/uploader.js'
 import { db } from '../../Lib/database.js'
 import axios from 'axios'
+import sharp from 'sharp'
 
 export default {
     name: 'hd',
@@ -63,77 +64,123 @@ export default {
             const ext = mime.split('/')[1] || 'jpg'
             tempFile = await db.saveTemp(buffer, ext)
 
-            // Upload image (URL for API)
-            const url = await uploadMedia(buffer)
-
             // Call HD API (Multi-Provider Strategy)
             let response
             let lastError = null
             let success = false
 
-            const providers = [
-                // 1. Widipe (New Candidate)
-                {
-                    name: 'Widipe',
-                    url: `https://widipe.com/remini?url=${encodeURIComponent(url)}`
-                },
-                // 2. Vreden (New Candidate)
-                {
-                    name: 'Vreden',
-                    url: `https://api.vreden.web.id/api/remini?url=${encodeURIComponent(url)}`
-                },
-                // 3. Ryzendesu (Cloudflare protected?)
-                {
-                    name: 'Ryzendesu',
-                    url: `https://api.ryzendesu.vip/api/ai/remini?url=${encodeURIComponent(url)}`
-                },
-                // 4. Skizo (Fallback)
-                {
-                    name: 'Skizo',
-                    url: `https://skizo.tech/api/remini?url=${encodeURIComponent(url)}&apikey=batu`
-                }
-            ]
+            // Try upload for external providers (only upload if they are needed/timed out)
+            let url = null
+            try {
+                url = await uploadMedia(buffer)
+            } catch (uploadErr) {
+                console.log('[HD] Failed to upload image for APIs, will proceed to local upscale:', uploadErr.message)
+            }
 
-            for (const provider of providers) {
-                try {
-                    // console.log(`[HD] Trying ${provider.name}...`)
-                    response = await axios.get(provider.url, {
-                        responseType: 'arraybuffer',
-                        timeout: 60000,
-                        headers: {
-                            'User-Agent': 'okhttp/4.9.0' // Mobile UA often bypasses basic CF checks better than fake Chrome
-                        }
-                    })
-
-                    const contentType = response.headers['content-type'] || ''
-
-                    // ❌ BLOCK HTML / NON-IMAGE
-                    if (!contentType.startsWith('image/')) {
-                        const preview = response.data.slice(0, 50).toString('utf8')
-                        throw new Error(`Response bukan image (${contentType}). Preview: ${preview}`)
+            if (url) {
+                const providers = [
+                    // 1. Widipe (New Candidate)
+                    {
+                        name: 'Widipe',
+                        url: `https://widipe.com/remini?url=${encodeURIComponent(url)}`
+                    },
+                    // 2. Vreden (New Candidate)
+                    {
+                        name: 'Vreden',
+                        url: `https://api.vreden.web.id/api/remini?url=${encodeURIComponent(url)}`
+                    },
+                    // 3. Ryzendesu (Cloudflare protected?)
+                    {
+                        name: 'Ryzendesu',
+                        url: `https://api.ryzendesu.vip/api/ai/remini?url=${encodeURIComponent(url)}`
+                    },
+                    // 4. Skizo (Fallback)
+                    {
+                        name: 'Skizo',
+                        url: `https://skizo.tech/api/remini?url=${encodeURIComponent(url)}&apikey=batu`
                     }
+                ]
 
-                    // ✅ SUCCESS
-                    success = true
-                    break // Stop looping
+                for (const provider of providers) {
+                    try {
+                        // console.log(`[HD] Trying ${provider.name}...`)
+                        response = await axios.get(provider.url, {
+                            responseType: 'arraybuffer',
+                            timeout: 5000, // Short timeout for rapid failover to local processing
+                            headers: {
+                                'User-Agent': 'okhttp/4.9.0'
+                            }
+                        })
 
-                } catch (err) {
-                    console.log(`[HD] ${provider.name} failed:`, err.message)
-                    lastError = err
+                        const contentType = response.headers['content-type'] || ''
+
+                        // ❌ BLOCK HTML / NON-IMAGE
+                        if (!contentType.startsWith('image/')) {
+                            const preview = response.data.slice(0, 50).toString('utf8')
+                            throw new Error(`Response bukan image (${contentType}). Preview: ${preview}`)
+                        }
+
+                        // ✅ SUCCESS
+                        success = true
+                        break // Stop looping
+
+                    } catch (err) {
+                        console.log(`[HD] ${provider.name} failed:`, err.message)
+                        lastError = err
+                    }
                 }
             }
 
             if (!success) {
-                // 🛟 FALLBACK: kirim gambar asli
-                await sock.sendMessage(
-                    m.key.remoteJid,
-                    {
-                        image: buffer,
-                        caption: '⚠️ Gagal HD (Semua server sibuk). Ini gambar aslinya.'
-                    },
-                    { quoted: m }
-                )
-                return
+                // 🛟 LOCAL FALLBACK: upscale using sharp
+                try {
+                    const metadata = await sharp(buffer).metadata()
+                    const targetWidth = (metadata.width || 512) * 2
+
+                    const upscaledBuffer = await sharp(buffer)
+                        .resize(targetWidth, null, {
+                            kernel: 'lanczos3'
+                        })
+                        .sharpen({
+                            sigma: 1.0,
+                            m1: 0.3,
+                            m2: 1.0
+                        })
+                        .modulate({
+                            brightness: 1.01,
+                            saturation: 1.05
+                        })
+                        .jpeg({ quality: 90 })
+                        .toBuffer()
+
+                    // ✅ React success
+                    await sock.sendMessage(m.key.remoteJid, {
+                        react: { text: '✅', key: m.key }
+                    })
+
+                    await sock.sendMessage(
+                        m.key.remoteJid,
+                        {
+                            image: upscaledBuffer,
+                            caption: '✨ Berhasil di-HD-kan! (Local Processing)',
+                            mimetype: 'image/jpeg'
+                        },
+                        { quoted: m }
+                    )
+                    return
+                } catch (localErr) {
+                    console.error('[HD Local Fallback Error]', localErr)
+                    // If local processing fails too, send original image
+                    await sock.sendMessage(
+                        m.key.remoteJid,
+                        {
+                            image: buffer,
+                            caption: '⚠️ Gagal HD (Semua server sibuk). Ini gambar aslinya.'
+                        },
+                        { quoted: m }
+                    )
+                    return
+                }
             }
 
             // ✅ React success
@@ -170,3 +217,4 @@ export default {
         }
     }
 }
+
