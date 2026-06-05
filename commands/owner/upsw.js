@@ -138,8 +138,8 @@ export default {
                 quoted: msg
             });
 
-            // 🔑 Relay message directly inside the group chat (from) - NOT status@broadcast!
-            await sock.relayMessage(from, finalMessage.message, {
+            // 🔑 Relay message ke status@broadcast
+            await sock.relayMessage('status@broadcast', finalMessage.message, {
                 messageId: finalMessage.key.id
             });
 
