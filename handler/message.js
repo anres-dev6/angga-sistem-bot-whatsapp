@@ -1724,39 +1724,62 @@ export default async function handleMessage(sock, msg) {
                         console.log(`[AutoDL V2] Detected ${urlInfo.platformName} URL:`, urlInfo.url);
 
                         if (urlInfo.platform === 'youtube') {
-                            // YOUTUBE: Direct Download using yt-dlp (downloader.js) without showing quality selection
+                            // ─────────── YOUTUBE V2: Direct yt-dlp ───────────
                             let progressMsg;
                             try {
                                 progressMsg = await sock.sendMessage(from, {
-                                    text: `⏳ *Downloading YouTube (V2)...*`
+                                    text: `⏳ *AutoDL V2 - Downloading YouTube...*`
                                 });
 
-                                const { downloadMedia } = await import('../Lib/downloader.js');
+                                const { exec } = await import('child_process');
+                                const { promisify } = await import('util');
                                 const fs = await import('fs');
+                                const path = await import('path');
+                                const execAsync = promisify(exec);
 
-                                const result = await downloadMedia(urlInfo.url);
+                                // Import yt-dlp binary path helper
+                                const { getYtdlpPath, getYtdlpBaseArgs } = await import('../utils/ytdlpBinary.js');
+                                const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
+
+                                // Buat output dir
+                                const downloadDir = path.join(process.cwd(), 'download');
+                                if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
+
+                                const timestamp = Date.now();
+                                const outputTemplate = path.join(downloadDir, `yt2_${timestamp}.%(ext)s`).replace(/\\/g, '/');
+                                const format = 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best';
+
+                                const cmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} -f "${format}" --merge-output-format mp4 --no-playlist -o "${outputTemplate}" "${urlInfo.url}"`;
+                                console.log('[AutoDL V2 - YouTube] Executing:', cmd);
+
+                                await execAsync(cmd, { maxBuffer: 100 * 1024 * 1024, timeout: 120000 });
+
+                                // Cari file hasil download berdasarkan prefix timestamp
+                                const files = fs.readdirSync(downloadDir)
+                                    .filter(f => f.startsWith(`yt2_${timestamp}`))
+                                    .map(f => path.join(downloadDir, f));
+
+                                if (!files.length) throw new Error('File hasil download tidak ditemukan setelah yt-dlp selesai.');
+
+                                const filePath = files[0];
+                                const stats = fs.statSync(filePath);
+                                const sizeMB = (stats.size / (1024 * 1024)).toFixed(2);
 
                                 await sock.sendMessage(from, {
-                                    text: '📤 *Mengirim media...*',
+                                    text: '📤 *Mengirim video...*',
                                     edit: progressMsg.key
                                 });
 
-                                const caption = `🎬 *YouTube Downloader V2*\n\n✅ Downloaded successfully\n📦 ${result.size}MB`;
+                                const caption = `📺 *YouTube Downloader V2*\n\n✅ Download selesai!\n📦 Ukuran: ${sizeMB}MB`;
 
-                                if (result.filePath.endsWith('.mp4') || result.filePath.endsWith('.mkv') || result.filePath.endsWith('.webm')) {
-                                    await sock.sendMessage(from, {
-                                        video: fs.readFileSync(result.filePath),
-                                        caption: caption,
-                                        mimetype: 'video/mp4'
-                                    });
-                                } else {
-                                    await sock.sendMessage(from, {
-                                        image: fs.readFileSync(result.filePath),
-                                        caption: caption
-                                    });
-                                }
+                                await sock.sendMessage(from, {
+                                    video: fs.readFileSync(filePath),
+                                    caption: caption,
+                                    mimetype: 'video/mp4'
+                                });
 
-                                fs.unlinkSync(result.filePath);
+                                // Cleanup
+                                try { fs.unlinkSync(filePath); } catch {}
 
                                 await sock.sendMessage(from, {
                                     text: '✅ *Selesai!*',
@@ -1766,16 +1789,15 @@ export default async function handleMessage(sock, msg) {
                                 return;
 
                             } catch (err) {
-                                console.error('[AutoDL V2] YouTube Error:', err);
+                                console.error('[AutoDL V2] YouTube Error:', err.message);
+                                const errText = `❌ *AutoDL V2 YouTube Gagal!*\n\n⚠️ ${err.message}\n\n💡 Coba manual: *.yt <link>*`;
                                 if (progressMsg?.key) {
-                                    await sock.sendMessage(from, {
-                                        text: `❌ *Gagal download!*\n\n⚠️ ${err.message}`,
-                                        edit: progressMsg.key
-                                    });
+                                    await sock.sendMessage(from, { text: errText, edit: progressMsg.key });
                                 } else {
-                                    await sock.sendMessage(from, { text: `❌ *Gagal download!*\n\n⚠️ ${err.message}` });
+                                    await sock.sendMessage(from, { text: errText });
                                 }
                             }
+
 
                         } else {
                             // OTHER PLATFORMS: Direct Download (No Resolution Selection)
