@@ -1,3 +1,5 @@
+import { generateWAMessageFromContent } from 'baileys';
+
 // Global cache for download URLs (to keep button IDs short)
 if (!global.dlCache) {
     global.dlCache = new Map();

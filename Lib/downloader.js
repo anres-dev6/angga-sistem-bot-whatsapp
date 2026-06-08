@@ -189,13 +189,13 @@ export async function downloadMedia(url, onProgress = null) {
     }
 
     return new Promise((resolve, reject) => {
-        const ytdlpCmd = getYtdlpPath();
-        if (ytdlpCmd.includes(path.sep) && !fs.existsSync(ytdlpCmd)) {
+        const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
+        if (ytdlpCmd.includes('/') && !fs.existsSync(ytdlpCmd)) {
             return reject(new Error("yt-dlp binary tidak ditemukan. Pastikan yt-dlp.exe ada di folder Lib/"));
         }
 
         const timestamp = Date.now();
-        const output = path.join(DOWNLOAD_DIR, `${platform}_${timestamp}.%(ext)s`);
+        const output = path.join(DOWNLOAD_DIR, `${platform}_${timestamp}.%(ext)s`).replace(/\\/g, '/');
 
         // Build platform-specific args
         let extraArgs = "";

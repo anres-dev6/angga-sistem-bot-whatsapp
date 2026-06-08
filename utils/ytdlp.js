@@ -13,7 +13,7 @@ const execAsync = promisify(exec);
  */
 export async function getVideoInfo(url) {
     try {
-        const ytdlpCmd = getYtdlpPath();
+        const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
         const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} --dump-json "${url}"`;
         const { stdout } = await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024 });
         return JSON.parse(stdout);
@@ -89,8 +89,9 @@ export async function getAvailableFormats(url) {
 export async function downloadVideo(url, formatId, outputPath) {
     try {
         // Use format with best audio
-        const ytdlpCmd = getYtdlpPath();
-        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -f "${formatId}+bestaudio/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
+        const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
+        const safeOutputPath = outputPath.replace(/\\/g, '/');
+        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -f "${formatId}+bestaudio/best" --merge-output-format mp4 -o "${safeOutputPath}" "${url}"`;
         console.log('[YT-DLP] Downloading video:', cmd);
 
         await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
@@ -110,8 +111,9 @@ export async function downloadVideo(url, formatId, outputPath) {
  */
 export async function downloadAudio(url, quality = '192', outputPath) {
     try {
-        const ytdlpCmd = getYtdlpPath();
-        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -x --audio-format mp3 --audio-quality ${quality}K -o "${outputPath}" "${url}"`;
+        const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
+        const safeOutputPath = outputPath.replace(/\\/g, '/');
+        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -x --audio-format mp3 --audio-quality ${quality}K -o "${safeOutputPath}" "${url}"`;
         console.log('[YT-DLP] Downloading audio:', cmd);
 
         await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
@@ -133,8 +135,9 @@ export async function downloadAudio(url, quality = '192', outputPath) {
  */
 export async function downloadThumbnail(url, outputPath) {
     try {
-        const ytdlpCmd = getYtdlpPath();
-        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} --write-thumbnail --skip-download -o "${outputPath}" "${url}"`;
+        const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
+        const safeOutputPath = outputPath.replace(/\\/g, '/');
+        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} --write-thumbnail --skip-download -o "${safeOutputPath}" "${url}"`;
         await execAsync(cmd);
 
         // Find the downloaded thumbnail
@@ -159,8 +162,9 @@ export async function downloadThumbnail(url, outputPath) {
  */
 export async function downloadSubtitle(url, lang = 'en', outputPath) {
     try {
-        const ytdlpCmd = getYtdlpPath();
-        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} --write-sub --sub-lang ${lang} --skip-download -o "${outputPath}" "${url}"`;
+        const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
+        const safeOutputPath = outputPath.replace(/\\/g, '/');
+        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} --write-sub --sub-lang ${lang} --skip-download -o "${safeOutputPath}" "${url}"`;
         await execAsync(cmd);
 
         const srtPath = outputPath.replace(/\.[^.]+$/, `.${lang}.srt`);

@@ -8,7 +8,7 @@ const execAsync = promisify(exec);
 export default async function youtube(url, ctx) {
     // Strategy 1: yt-dlp (paling reliable untuk YouTube)
     try {
-        const ytdlpPath = getYtdlpPath();
+        const ytdlpPath = getYtdlpPath().replace(/\\/g, '/');
         const cmd = `"${ytdlpPath}" ${getYtdlpBaseArgs()} --dump-json --quiet "${url}"`;
         const { stdout } = await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024, timeout: 30000 });
         const info = JSON.parse(stdout);
