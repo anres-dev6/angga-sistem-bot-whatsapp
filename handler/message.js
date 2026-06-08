@@ -1724,45 +1724,57 @@ export default async function handleMessage(sock, msg) {
                         console.log(`[AutoDL V2] Detected ${urlInfo.platformName} URL:`, urlInfo.url);
 
                         if (urlInfo.platform === 'youtube') {
-                            // YOUTUBE: Interactive Quality List
+                            // YOUTUBE: Direct Download using yt-dlp (downloader.js) without showing quality selection
+                            let progressMsg;
                             try {
-                                const { sendUniversalQualityList, detectAvailableQualities } = await import('../utils/interactiveMessage.js');
-
-                                const progressMsg = await sock.sendMessage(from, {
-                                    text: `🔍 *Getting info (YT)...*\n\n📥 ${urlInfo.platformName}`
+                                progressMsg = await sock.sendMessage(from, {
+                                    text: `⏳ *Downloading YouTube (V2)...*`
                                 });
 
-                                // Detect available qualities
-                                const qualities = await detectAvailableQualities(urlInfo.url, urlInfo.platform);
+                                const { downloadMedia } = await import('../Lib/downloader.js');
+                                const fs = await import('fs');
 
-                                // Create session
-                                const { createSession } = await import('../utils/sessionManager.js');
-                                createSession(from, {
-                                    engine: 'yt-dlp', // Force yt-dlp for YT
-                                    stage: 'select_quality',
-                                    url: urlInfo.url,
-                                    qualities: qualities,
-                                    platform: urlInfo.platform,
-                                    title: 'YouTube Video'
+                                const result = await downloadMedia(urlInfo.url);
+
+                                await sock.sendMessage(from, {
+                                    text: '📤 *Mengirim media...*',
+                                    edit: progressMsg.key
                                 });
 
-                                await new Promise(r => setTimeout(r, 1000));
+                                const caption = `🎬 *YouTube Downloader V2*\n\n✅ Downloaded successfully\n📦 ${result.size}MB`;
 
-                                await sendUniversalQualityList(
-                                    sock,
-                                    from,
-                                    'YouTube Video',
-                                    urlInfo.platform,
-                                    qualities,
-                                    urlInfo.url,
-                                    0
-                                );
+                                if (result.filePath.endsWith('.mp4') || result.filePath.endsWith('.mkv') || result.filePath.endsWith('.webm')) {
+                                    await sock.sendMessage(from, {
+                                        video: fs.readFileSync(result.filePath),
+                                        caption: caption,
+                                        mimetype: 'video/mp4'
+                                    });
+                                } else {
+                                    await sock.sendMessage(from, {
+                                        image: fs.readFileSync(result.filePath),
+                                        caption: caption
+                                    });
+                                }
 
-                                if (progressMsg?.key) await sock.sendMessage(from, { delete: progressMsg.key });
+                                fs.unlinkSync(result.filePath);
+
+                                await sock.sendMessage(from, {
+                                    text: '✅ *Selesai!*',
+                                    edit: progressMsg.key
+                                });
+
                                 return;
 
                             } catch (err) {
                                 console.error('[AutoDL V2] YouTube Error:', err);
+                                if (progressMsg?.key) {
+                                    await sock.sendMessage(from, {
+                                        text: `❌ *Gagal download!*\n\n⚠️ ${err.message}`,
+                                        edit: progressMsg.key
+                                    });
+                                } else {
+                                    await sock.sendMessage(from, { text: `❌ *Gagal download!*\n\n⚠️ ${err.message}` });
+                                }
                             }
 
                         } else {

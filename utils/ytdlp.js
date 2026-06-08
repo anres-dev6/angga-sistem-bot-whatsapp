@@ -202,3 +202,46 @@ export function formatDuration(seconds) {
     if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
+
+/**
+ * Download video using yt-dlp (helper for V2 quality selection)
+ */
+export async function downloadYTDLP(url, quality) {
+    const timestamp = Date.now();
+    const tempDir = path.join(process.cwd(), 'temp');
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+    }
+    const outputPath = path.join(tempDir, `yt_${timestamp}.mp4`);
+    const formatId = `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<=${quality}]`;
+    
+    await downloadVideo(url, formatId, outputPath);
+    
+    const stats = fs.statSync(outputPath);
+    const fileSize = formatFileSize(stats.size);
+    return {
+        filePath: outputPath,
+        fileSize
+    };
+}
+
+/**
+ * Download audio using yt-dlp (helper for V2 quality selection)
+ */
+export async function downloadYTDLPAudio(url, quality = '128') {
+    const timestamp = Date.now();
+    const tempDir = path.join(process.cwd(), 'temp');
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+    }
+    const outputPath = path.join(tempDir, `yt_${timestamp}.mp3`);
+    
+    const mp3Path = await downloadAudio(url, quality, outputPath);
+    
+    const stats = fs.statSync(mp3Path);
+    const fileSize = formatFileSize(stats.size);
+    return {
+        filePath: mp3Path,
+        fileSize
+    };
+}

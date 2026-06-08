@@ -2,11 +2,60 @@ import fetch from 'node-fetch';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getYtdlpPath, getYtdlpBaseArgs } from '../../utils/ytdlpBinary.js';
+import { downloadMedia } from '../../Lib/downloader.js';
+import fs from 'fs';
 
 const execAsync = promisify(exec);
 
 export default async function youtube(url, ctx) {
-    // Strategy 1: yt-dlp (paling reliable untuk YouTube)
+    // Strategy 1: ab-downloader (V3 menggunakan abDownloader)
+    try {
+        console.log('[AutoDL V3 - YouTube] Downloading using ab-downloader...');
+        const { downloadMedia: downloadMediaAb } = await import('../../utils/abDownloader.js');
+        const result = await downloadMediaAb(url);
+        if (result && result.filePath) {
+            const buffer = fs.readFileSync(result.filePath);
+            try {
+                fs.unlinkSync(result.filePath);
+            } catch (err) {
+                console.error('[AutoDL V3 - YouTube] Cleanup error:', err);
+            }
+            return {
+                type: 'video',
+                buffer,
+                url: null,
+                filename: `yt_${Date.now()}.mp4`,
+                title: result.title || 'YouTube Video'
+            };
+        }
+    } catch (e) {
+        console.warn('[AutoDL V3 - YouTube] ab-downloader failed:', e.message);
+    }
+
+    // Strategy 2: Downloader (V3 fallback menggunakan Lib/downloader.js - yt-dlp)
+    try {
+        console.log('[AutoDL V3 - YouTube] Downloading using Lib/downloader.js (yt-dlp)...');
+        const result = await downloadMedia(url);
+        if (result && result.filePath) {
+            const buffer = fs.readFileSync(result.filePath);
+            try {
+                fs.unlinkSync(result.filePath);
+            } catch (err) {
+                console.error('[AutoDL V3 - YouTube] Cleanup error:', err);
+            }
+            return {
+                type: 'video',
+                buffer,
+                url: null,
+                filename: `yt_${Date.now()}.mp4`,
+                title: result.title || 'YouTube Video'
+            };
+        }
+    } catch (e) {
+        console.warn('[AutoDL V3 - YouTube] Lib/downloader failed:', e.message);
+    }
+
+    // Strategy 2: yt-dlp (paling reliable untuk YouTube)
     try {
         const ytdlpPath = getYtdlpPath().replace(/\\/g, '/');
         const cmd = `"${ytdlpPath}" ${getYtdlpBaseArgs()} --dump-json --quiet "${url}"`;
@@ -39,7 +88,7 @@ export default async function youtube(url, ctx) {
         console.warn('[AutoDL V3 - YouTube] yt-dlp dump-json failed:', e.message);
     }
 
-    // Strategy 2: @distube/ytdl-core fallback
+    // Strategy 3: @distube/ytdl-core fallback
     try {
         const { createRequire } = await import('module');
         const require = createRequire(import.meta.url);
