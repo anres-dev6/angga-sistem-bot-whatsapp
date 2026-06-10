@@ -4,6 +4,7 @@ import {
     updateSessionActivity, 
     terminateConfessSession, 
     normalizeJid,
+    cleanJid,
     sessions 
 } from '../Lib/confess_manager.js';
 
@@ -22,13 +23,15 @@ const mockSock = {
 async function run() {
     console.log("=== RUNNING ANONYMOUS CONFESS STATE MACHINE TEST ===");
 
-    const senderJid = '628999999999@s.whatsapp.net';
-    const receiverJid = '628123456789@s.whatsapp.net';
+    const senderJid = '628999999999:2@s.whatsapp.net';
+    const receiverJid = '628123456789:15@s.whatsapp.net';
 
     // 1. Verify JID normalization
     console.log("\n1. Testing JID Normalization...");
     console.log(`08123456789 -> ${normalizeJid('08123456789')}`);
     console.log(`628123456789 -> ${normalizeJid('628123456789')}`);
+    console.log(`628999999999:2@s.whatsapp.net -> ${normalizeJid('628999999999:2@s.whatsapp.net')}`);
+    console.log(`628123456789:15@s.whatsapp.net -> ${normalizeJid('628123456789:15@s.whatsapp.net')}`);
 
     // 2. Create Sesi Confess
     console.log("\n2. Creating Confess Session...");
@@ -36,7 +39,7 @@ async function run() {
         mockSock, 
         senderJid, 
         "Bos", 
-        "08123456789", 
+        "08123456789:15@s.whatsapp.net", 
         "Halo, semoga harimu menyenangkan."
     );
 
@@ -49,7 +52,7 @@ async function run() {
     const receiverBody = "Halo juga.";
     const receiverSession = findSessionByUser(receiverJid);
     if (receiverSession) {
-        const targetJid = (receiverJid === receiverSession.senderJid)
+        const targetJid = (cleanJid(receiverJid) === cleanJid(receiverSession.senderJid))
             ? receiverSession.receiverJid
             : receiverSession.senderJid;
             
@@ -63,7 +66,7 @@ async function run() {
     const senderBody = "Terima kasih.";
     const senderSession = findSessionByUser(senderJid);
     if (senderSession) {
-        const targetJid = (senderJid === senderSession.senderJid)
+        const targetJid = (cleanJid(senderJid) === cleanJid(senderSession.senderJid))
             ? senderSession.receiverJid
             : senderSession.senderJid;
             

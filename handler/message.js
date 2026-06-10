@@ -142,7 +142,7 @@ export default async function handleMessage(sock, msg) {
         if (!sender) return;
 
         // Extract phone number from sender (remove @s.whatsapp.net or @c.us or @lid)
-        const senderNumber = sender.split('@')[0].replace(/\D/g, ''); // Remove non-digits
+        const senderNumber = sender.split('@')[0].split(':')[0].replace(/\D/g, ''); // Remove non-digits
 
         // Load owners from JSON file
         const owners = loadOwners();

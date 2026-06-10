@@ -13,7 +13,14 @@ const SESSION_TIMEOUT_MS = 3600000;
  */
 export function normalizeJid(num) {
     if (!num) return '';
-    let clean = num.replace(/[^0-9]/g, '');
+    let clean = num;
+    if (clean.includes('@')) {
+        clean = clean.split('@')[0];
+    }
+    if (clean.includes(':')) {
+        clean = clean.split(':')[0];
+    }
+    clean = clean.replace(/[^0-9]/g, '');
     if (clean.startsWith('0')) {
         clean = '62' + clean.slice(1);
     }
@@ -30,7 +37,14 @@ export function normalizeJid(num) {
  */
 export function cleanJid(jid) {
     if (!jid) return '';
-    return jid.split('@')[0].replace(/[^0-9]/g, '');
+    let clean = jid;
+    if (clean.includes('@')) {
+        clean = clean.split('@')[0];
+    }
+    if (clean.includes(':')) {
+        clean = clean.split(':')[0];
+    }
+    return clean.replace(/[^0-9]/g, '');
 }
 
 /**

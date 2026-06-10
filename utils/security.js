@@ -55,7 +55,7 @@ export const saveOwners = (owners) => {
  * Add owner
  */
 export const addOwner = (jid) => {
-    const number = jid.split('@')[0].replace(/\D/g, '');
+    const number = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
     const owners = loadOwners();
 
     if (!owners.includes(number)) {
@@ -70,7 +70,7 @@ export const addOwner = (jid) => {
  * Remove owner
  */
 export const removeOwner = (jid) => {
-    const number = jid.split('@')[0].replace(/\D/g, '');
+    const number = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
     const owners = loadOwners();
     const index = owners.indexOf(number);
 
@@ -88,7 +88,7 @@ export const removeOwner = (jid) => {
  */
 export const isOwner = (jid) => {
     // Extract number from JID and remove all non-digits
-    const senderNumber = jid.split('@')[0].replace(/\D/g, '');
+    const senderNumber = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
 
     // Load owners from file
     const owners = loadOwners();
