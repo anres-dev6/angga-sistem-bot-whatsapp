@@ -71,6 +71,14 @@ export async function initConfessSessions(sock) {
 export function normalizeJid(num) {
     if (!num) return '';
     let clean = num;
+    if (typeof clean === 'string' && clean.endsWith('@lid')) {
+        let userPart = clean.split('@')[0];
+        if (userPart.includes(':')) {
+            userPart = userPart.split(':')[0];
+        }
+        userPart = userPart.replace(/[^0-9]/g, '');
+        return userPart + '@lid';
+    }
     if (clean.includes('@')) {
         clean = clean.split('@')[0];
     }
