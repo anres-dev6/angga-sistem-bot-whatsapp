@@ -90,14 +90,23 @@ export default {
                 owners.push('6285708950373');
             }
 
-            const botNumber = (sock.user?.id || sock.user?.jid || '').split(':')[0].split('@')[0].replace(/\D/g, '');
-            const targetNumbers = numbersToKick.map(jid => jid.split('@')[0].split(':')[0].replace(/\D/g, ''));
-            const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : botNumber + '@s.whatsapp.net';
+            const rawBotId = sock.user?.id || sock.user?.jid || '';
+            const cleanBotNumber = rawBotId.split(':')[0].split('@')[0].replace(/\D/g, '');
+            const botJidNormalized = rawBotId.split(':')[0] + '@s.whatsapp.net';
+            const botLidNormalized = rawBotId.split(':')[0] + '@lid';
             
             // Check if bot is targeted
             const hasBot = numbersToKick.some(jid => {
-                const cleanJid = jid.split('@')[0].split(':')[0];
-                return cleanJid === botNumber || cleanJid === '62882010454452' || jid === botJid;
+                if (!jid) return false;
+                const cleanTargetNumber = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
+                return (
+                    cleanTargetNumber === cleanBotNumber || 
+                    cleanTargetNumber === '62882010454452' || 
+                    jid === botJidNormalized || 
+                    jid === botLidNormalized ||
+                    jid === rawBotId ||
+                    jid.startsWith(cleanBotNumber)
+                );
             });
 
             if (hasBot) {
@@ -105,6 +114,8 @@ export default {
                     text: 'ojo di tokne JEMBOTTT'
                 }, { quoted: m });
             }
+
+            const targetNumbers = numbersToKick.map(jid => jid.split('@')[0].split(':')[0].replace(/\D/g, ''));
 
             // Check if owner is targeted
             const hasOwner = targetNumbers.some(num => owners.includes(num));
@@ -116,8 +127,16 @@ export default {
 
             // Paksakan kick siapa saja (mau dia admin, mau pembuat grup) - tidak skip admin grup lagi
             const toKick = numbersToKick.filter(jid => {
-                const cleanJid = jid.split('@')[0].split(':')[0];
-                return cleanJid !== botNumber && cleanJid !== '62882010454452' && jid !== botJid;
+                if (!jid) return false;
+                const cleanTargetNumber = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
+                return (
+                    cleanTargetNumber !== cleanBotNumber && 
+                    cleanTargetNumber !== '62882010454452' && 
+                    jid !== botJidNormalized && 
+                    jid !== botLidNormalized &&
+                    jid !== rawBotId &&
+                    !jid.startsWith(cleanBotNumber)
+                );
             });
 
             if (toKick.length === 0) {
