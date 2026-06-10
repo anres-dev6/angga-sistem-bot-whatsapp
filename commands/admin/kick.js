@@ -99,7 +99,8 @@ export default {
                     jid === botJidNormalized || 
                     jid === botLidNormalized ||
                     jid === rawBotId ||
-                    jid.startsWith(cleanBotNumber)
+                    jid.startsWith(cleanBotNumber) ||
+                    jid.includes('62882010454452')
                 );
             });
 
@@ -129,7 +130,8 @@ export default {
                     jid !== botJidNormalized && 
                     jid !== botLidNormalized &&
                     jid !== rawBotId &&
-                    !jid.startsWith(cleanBotNumber)
+                    !jid.startsWith(cleanBotNumber) &&
+                    !jid.includes('62882010454452')
                 );
             });
 
