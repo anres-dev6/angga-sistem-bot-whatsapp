@@ -32,6 +32,7 @@ async function run() {
     console.log(`628123456789 -> ${normalizeJid('628123456789')}`);
     console.log(`628999999999:2@s.whatsapp.net -> ${normalizeJid('628999999999:2@s.whatsapp.net')}`);
     console.log(`628123456789:15@s.whatsapp.net -> ${normalizeJid('628123456789:15@s.whatsapp.net')}`);
+    console.log(`+62 897-0998-0099 -> ${normalizeJid('+62 897-0998-0099')}`);
 
     // 2. Create Sesi Confess
     console.log("\n2. Creating Confess Session...");
