@@ -92,9 +92,14 @@ export default {
 
             const botNumber = (sock.user?.id || sock.user?.jid || '').split(':')[0].split('@')[0].replace(/\D/g, '');
             const targetNumbers = numbersToKick.map(jid => jid.split('@')[0].split(':')[0].replace(/\D/g, ''));
-
+            const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : botNumber + '@s.whatsapp.net';
+            
             // Check if bot is targeted
-            const hasBot = targetNumbers.some(num => num === botNumber || num === '62882010454452');
+            const hasBot = numbersToKick.some(jid => {
+                const cleanJid = jid.split('@')[0].split(':')[0];
+                return cleanJid === botNumber || cleanJid === '62882010454452' || jid === botJid;
+            });
+
             if (hasBot) {
                 return sock.sendMessage(from, {
                     text: 'ojo di tokne JEMBOTTT'
@@ -110,7 +115,14 @@ export default {
             }
 
             // Paksakan kick siapa saja (mau dia admin, mau pembuat grup) - tidak skip admin grup lagi
-            const toKick = numbersToKick;
+            const toKick = numbersToKick.filter(jid => {
+                const cleanJid = jid.split('@')[0].split(':')[0];
+                return cleanJid !== botNumber && cleanJid !== '62882010454452' && jid !== botJid;
+            });
+
+            if (toKick.length === 0) {
+                return; // Jika kosong setelah difilter (misalnya hanya ngekick bot saja)
+            }
 
             const results = [];
             for (const jid of toKick) {
