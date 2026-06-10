@@ -78,10 +78,7 @@ export default {
 
             // Send farewell message
             await sock.sendMessage(from, {
-                text: `👋 *Selamat tinggal!*\n\n` +
-                    `Bot akan keluar dari grup ini.\n` +
-                    `Terima kasih sudah menggunakan layanan botku...\n` +
-                    `- Angga`
+                text: `sayonara`
             }, { quoted: msg });
 
             // Leave group
@@ -125,12 +122,8 @@ export default {
 
                 for (const group of groupList) {
                     try {
-                        // Send farewell message
                         await sock.sendMessage(group.id, {
-                            text: `👋 *Selamat tinggal!*\n\n` +
-                                `Bot akan keluar dari grup ini.\n` +
-                                `Terima kasih sudah menggunakan layanan botku...\n` +
-                                `- Angga`
+                            text: `sayonara`
                         });
 
                         // Leave group
@@ -162,12 +155,8 @@ export default {
                         try {
                             const metadata = await sock.groupMetadata(targetJid);
 
-                            // Send farewell message
                             await sock.sendMessage(targetJid, {
-                                text: `👋 *Selamat tinggal!*\n\n` +
-                                    `Bot akan keluar dari grup ini.\n` +
-                                    `Terima kasih sudah menggunakan layanan botku...\n` +
-                                    `- Angga`
+                                text: `sayonara`
                             });
 
                             // Leave group
@@ -210,12 +199,8 @@ export default {
             // Get group metadata
             const metadata = await sock.groupMetadata(targetJid);
 
-            // Send farewell message to group
             await sock.sendMessage(targetJid, {
-                text: `👋 *Selamat tinggal!*\n\n` +
-                    `Bot akan keluar dari grup ini.\n` +
-                    `Terima kasih sudah menggunakan layanan botku...\n` +
-                    `- Angga`
+                text: `sayonara`
             });
 
             // Leave group
