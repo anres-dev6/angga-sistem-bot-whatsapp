@@ -291,15 +291,15 @@ export default {
                 if (lines.length === 0) return 0;
                 const maxLen = Math.max(...lines.map(l => getVisualLength(l)));
                 // Proportional base size (each letter of narrow bold fonts is approx 0.45 - 0.50 of font size in width)
-                let size = Math.floor(480 / (maxLen * 0.5));
+                let size = Math.floor(400 / (maxLen * 0.5));
                 
                 // Dynamic caps depending on the number of wrapped lines to prevent canvas overflow
-                let maxCap = 100; // 1 Line can be HUGE (up to 100px)
-                if (lines.length === 2) maxCap = 75; // 2 Lines capped at 75px
-                if (lines.length === 3) maxCap = 55; // 3 Lines capped at 55px to protect focal object
+                let maxCap = 80; // 1 Line can be up to 80px (dikecilkan dari 100)
+                if (lines.length === 2) maxCap = 60; // 2 Lines capped at 60px (dikecilkan dari 75)
+                if (lines.length === 3) maxCap = 45; // 3 Lines capped at 45px (dikecilkan dari 55)
                 
-                let minCap = 35;
-                if (lines.length === 1) minCap = 50; // Single line should always be highly prominent
+                let minCap = 28;
+                if (lines.length === 1) minCap = 40; // Single line minCap (dikecilkan dari 50)
                 
                 if (size < minCap) size = minCap;
                 if (size > maxCap) size = maxCap;

@@ -27,7 +27,7 @@ export default {
 
         if (!content) {
             return sock.sendMessage(from, {
-                text: "❌ Kirim/Reply gambar atau video dengan caption .s\n\n💡 Cara pakai:\n• Kirim gambar → .s\n• Reply gambar → .s\n• Kirim video (max 10 detik) → .s"
+                text: "❌ Kirim/Reply gambar atau video dengan caption .s\n\n💡 Cara pakai:\n• Kirim gambar → .s\n• Reply gambar → .s\n• Kirim video (max 5 detik) → .s\n\n⚠️ Video akan di-convert ke stiker animasi (max 5 detik)"
             }, { quoted: m });
         }
 
@@ -51,11 +51,11 @@ export default {
 
             let stickerBuff;
             if (isVideo) {
-                // Additional check for seconds if available
-                if (content.seconds > 10) {
+                // Validasi durasi - max 5 detik untuk stiker WhatsApp
+                if (content.seconds && content.seconds > 5) {
                     await sock.sendMessage(from, { react: { text: '❌', key: m.key } });
                     return sock.sendMessage(from, {
-                        text: "❌ Video maksimal 10 detik!\n\n💡 Potong video dulu atau kirim yang lebih pendek."
+                        text: `❌ *Video terlalu panjang!*\n\nDurasi video kamu: *${content.seconds} detik*\nMaksimal untuk stiker: *5 detik*\n\n💡 Potong video dulu atau kirim yang lebih pendek.`
                     }, { quoted: m });
                 }
                 stickerBuff = await videoToWebp(buffer);

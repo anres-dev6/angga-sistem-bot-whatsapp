@@ -93,15 +93,15 @@ export default {
             const botNumber = (sock.user?.id || sock.user?.jid || '').split(':')[0].split('@')[0].replace(/\D/g, '');
             const targetNumbers = numbersToKick.map(jid => jid.split('@')[0].split(':')[0].replace(/\D/g, ''));
 
-            // Check if bot is targeted (dynamically or using hardcoded number)
+            // Check if bot is targeted
             const hasBot = targetNumbers.some(num => num === botNumber || num === '62882010454452');
             if (hasBot) {
                 return sock.sendMessage(from, {
-                    text: 'dancok ojo di kick'
+                    text: 'ojo di tokne JEMBOTTT'
                 }, { quoted: m });
             }
 
-            // Check if owner is targeted (dynamically or using hardcoded number)
+            // Check if owner is targeted
             const hasOwner = targetNumbers.some(num => owners.includes(num));
             if (hasOwner) {
                 return sock.sendMessage(from, {
@@ -109,19 +109,8 @@ export default {
                 }, { quoted: m });
             }
 
-            const admins = participants.filter(p => p.admin).map(p => p.id);
-            const toKick = numbersToKick.filter(jid => {
-                if (admins.includes(jid)) {
-                    return false; // Skip admins
-                }
-                return true;
-            });
-
-            if (toKick.length === 0) {
-                return sock.sendMessage(from, {
-                    text: '❌ Tidak bisa kick admin grup!'
-                }, { quoted: m });
-            }
+            // Paksakan kick siapa saja (mau dia admin, mau pembuat grup) - tidak skip admin grup lagi
+            const toKick = numbersToKick;
 
             const results = [];
             for (const jid of toKick) {
