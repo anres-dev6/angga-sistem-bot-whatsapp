@@ -65,6 +65,17 @@ async function startBot() {
             console.log(chalk.green("Bot berhasil connect ✔️"));
             isPairing = false; // Reset flag
             startReminderScheduler(sock);
+            
+            // Load and initialize active confess sessions from disk
+            try {
+                import('./Lib/confess_manager.js').then(({ initConfessSessions }) => {
+                    initConfessSessions(sock).catch(err => {
+                        console.error('[Confess] initConfessSessions error:', err);
+                    });
+                });
+            } catch (err) {
+                console.error('[Confess] Import initConfessSessions failed:', err);
+            }
         } else if (connection === "close") {
             const shouldReconnect = (update.lastDisconnect?.error)?.output?.statusCode !== 401;
             const errorReason = update.lastDisconnect?.error;

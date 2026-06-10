@@ -4,3 +4,4 @@ package-lock.json
 assets/emojis/
 temp/
 auth/
+data/confess_sessions.json

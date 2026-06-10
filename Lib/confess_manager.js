@@ -1,10 +1,67 @@
+import fs from 'fs';
+import path from 'path';
 import chalk from 'chalk';
 
-// In-memory sessions store. Key: session ID, Value: session object
-export const sessions = new Map();
+const SESSIONS_FILE = path.join(process.cwd(), 'data', 'confess_sessions.json');
+
+// In-memory sessions store
+export let sessions = new Map();
 
 // 1 hour in milliseconds (1 * 60 * 60 * 1000)
 const SESSION_TIMEOUT_MS = 3600000;
+
+// Helper to load sessions from file
+function loadSessionsFromDisk() {
+    try {
+        if (fs.existsSync(SESSIONS_FILE)) {
+            const data = fs.readFileSync(SESSIONS_FILE, 'utf8');
+            const parsed = JSON.parse(data);
+            const map = new Map();
+            for (const [key, value] of Object.entries(parsed)) {
+                value.timeoutTimer = null;
+                map.set(key, value);
+            }
+            return map;
+        }
+    } catch (e) {
+        console.error('[Confess] Failed to load sessions from file:', e.message);
+    }
+    return new Map();
+}
+
+// Helper to save sessions to file
+function saveSessionsToDisk() {
+    try {
+        const dir = path.dirname(SESSIONS_FILE);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        const obj = {};
+        for (const [key, value] of sessions.entries()) {
+            const copy = { ...value, timeoutTimer: null };
+            obj[key] = copy;
+        }
+        fs.writeFileSync(SESSIONS_FILE, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (e) {
+        console.error('[Confess] Failed to save sessions to file:', e.message);
+    }
+}
+
+// Initialize and schedule timers for all persisted sessions
+export async function initConfessSessions(sock) {
+    sessions = loadSessionsFromDisk();
+    console.log(chalk.cyan(`[Confess] Initializing sessions from disk. Active sessions: ${sessions.size}`));
+    for (const session of sessions.values()) {
+        const elapsed = Date.now() - session.lastActivity;
+        const remaining = SESSION_TIMEOUT_MS - elapsed;
+        if (remaining > 0) {
+            scheduleTimeout(sock, session, remaining);
+        } else {
+            console.log(chalk.yellow(`[Confess] Persisted session ID: ${session.id} expired while bot was offline. Terminating...`));
+            await terminateConfessSession(sock, session, false);
+        }
+    }
+}
 
 /**
  * Standardize phone number input to a valid WhatsApp JID
@@ -103,8 +160,9 @@ export async function createConfessSession(sock, senderJid, senderName, rawRecei
         timeoutTimer: null
     };
 
-    // Store in-memory
+    // Store in-memory and disk
     sessions.set(sessionId, session);
+    saveSessionsToDisk();
 
     // Send first message to the receiver anonymously
     const introMessage = `💌 *PESAN BARU*\n\n` +
@@ -141,19 +199,22 @@ export function updateSessionActivity(sock, session) {
 
     // Re-schedule the 1-hour timer
     scheduleTimeout(sock, session);
+    saveSessionsToDisk();
     console.log(`[Confess] Timer extended for session ID: ${session.id}`);
 }
 
 /**
- * Schedules the inactivity timeout trigger for 1 hour
+ * Schedules the inactivity timeout trigger
  * @param {object} sock - Baileys socket
  * @param {object} session - Target session
+ * @param {number|null} customTime - Specific timeout duration in ms (defaults to SESSION_TIMEOUT_MS)
  */
-function scheduleTimeout(sock, session) {
+function scheduleTimeout(sock, session, customTime = null) {
+    const timeLimit = customTime !== null ? customTime : SESSION_TIMEOUT_MS;
     session.timeoutTimer = setTimeout(async () => {
         console.log(chalk.yellow(`[Confess] Session timeout reached for ID: ${session.id}. Terminating...`));
         await terminateConfessSession(sock, session, false);
-    }, SESSION_TIMEOUT_MS);
+    }, timeLimit);
 }
 
 /**
@@ -169,8 +230,9 @@ export async function terminateConfessSession(sock, session, manualStop = false)
         session.timeoutTimer = null;
     }
 
-    // 2. Remove session from in-memory routing map immediately (secures receiver information)
+    // 2. Remove session from in-memory routing map and disk immediately
     sessions.delete(session.id);
+    saveSessionsToDisk();
 
     // 3. Dispatch session termination cards to both parties
     const endMsg = manualStop 
@@ -208,7 +270,6 @@ export async function terminateConfessSession(sock, session, manualStop = false)
 
         console.log(`[Confess] Chat history successfully purged from bot storage.`);
     } catch (e) {
-        // Fallback: log note. Standard Baileys chat delete is highly supported, but fails gracefully if offline/unsupported
         console.log(`[Confess] Note: WhatsApp server chat clear/delete skipped or resolved gracefully: ${e.message}`);
     }
 

@@ -27,6 +27,23 @@ export default async function handleMessage(sock, msg) {
         const m = msg.messages[0];
         if (!m?.message) return;
 
+        // Unwrap ephemeral and view-once message wrappers if they exist
+        if (m.message.ephemeralMessage) {
+            m.message = m.message.ephemeralMessage.message;
+        }
+        if (m.message?.viewOnceMessage) {
+            m.message = m.message.viewOnceMessage.message;
+        }
+        if (m.message?.viewOnceMessageV2) {
+            m.message = m.message.viewOnceMessageV2.message;
+        }
+        if (m.message?.viewOnceMessageV2Extension) {
+            m.message = m.message.viewOnceMessageV2Extension.message;
+        }
+        if (m.message?.documentWithCaptionMessage) {
+            m.message = m.message.documentWithCaptionMessage.message;
+        }
+
         // Handle broadcast/status? Usually we skip those, but simple check first
         if (m.key && m.key.remoteJid === 'status@broadcast') return;
 
