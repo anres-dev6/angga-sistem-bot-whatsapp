@@ -29,44 +29,38 @@ export default {
             let numbersToKick = [];
 
             const quotedMsg = m.message?.extendedTextMessage?.contextInfo;
-            if (quotedMsg?.participant) {
+
+            // Priority 1: Mentioned Jid (Tag)
+            if (m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) {
+                numbersToKick = m.message.extendedTextMessage.contextInfo.mentionedJid;
+            }
+            // Priority 2: Quoted Participant (Reply pesan)
+            else if (quotedMsg?.participant) {
                 numbersToKick.push(quotedMsg.participant);
-            } else if (quotedMsg?.quotedMessage?.contactMessage) {
+            } 
+            // Priority 3: Contact Message
+            else if (quotedMsg?.quotedMessage?.contactMessage) {
                 const vcard = quotedMsg.quotedMessage.contactMessage.vcard;
-
-                let numberMatch = vcard.match(/waid=(\d+)/);
-                if (!numberMatch) {
-                    numberMatch = vcard.match(/tel:(\+?\d+)/);
-                }
-                if (!numberMatch) {
-                    numberMatch = vcard.match(/item\d+\.TEL[^:]*:(\+?\d+)/);
-                }
-
+                let numberMatch = vcard.match(/waid=(\d+)/) || vcard.match(/tel:(\+?\d+)/) || vcard.match(/item\d+\.TEL[^:]*:(\+?\d+)/);
                 if (numberMatch) {
                     const number = numberMatch[1].replace(/\D/g, '');
                     numbersToKick.push(number + '@s.whatsapp.net');
                 }
-            } else if (quotedMsg?.quotedMessage?.contactsArrayMessage) {
+            } 
+            // Priority 4: Contacts Array Message
+            else if (quotedMsg?.quotedMessage?.contactsArrayMessage) {
                 const contacts = quotedMsg.quotedMessage.contactsArrayMessage.contacts;
                 contacts.forEach(contact => {
                     const vcard = contact.vcard;
-
-                    let numberMatch = vcard.match(/waid=(\d+)/);
-                    if (!numberMatch) {
-                        numberMatch = vcard.match(/tel:(\+?\d+)/);
-                    }
-                    if (!numberMatch) {
-                        numberMatch = vcard.match(/item\d+\.TEL[^:]*:(\+?\d+)/);
-                    }
-
+                    let numberMatch = vcard.match(/waid=(\d+)/) || vcard.match(/tel:(\+?\d+)/) || vcard.match(/item\d+\.TEL[^:]*:(\+?\d+)/);
                     if (numberMatch) {
                         const number = numberMatch[1].replace(/\D/g, '');
                         numbersToKick.push(number + '@s.whatsapp.net');
                     }
                 });
-            } else if (m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) {
-                numbersToKick = m.message.extendedTextMessage.contextInfo.mentionedJid;
-            } else if (args[0]) {
+            } 
+            // Priority 5: Raw Arguments (Nomer HP dsb)
+            else if (args[0]) {
                 args.forEach(arg => {
                     const cleanNumber = arg.replace(/[^0-9]/g, '');
                     if (cleanNumber) {
