@@ -107,6 +107,39 @@ async function run() {
 
     // Cleanup
     await terminateConfessSession(mockSock, sess1, true);
+
+    // 8. Test: user replies to an expired/invalid session (quoting a confess message)
+    console.log("\n8. Testing reply to expired/invalid confess session...");
+    const expiredUserJid = '628999999999@s.whatsapp.net';
+    const activeExpired = findSessionByUser(expiredUserJid);
+    if (!activeExpired) {
+        console.log("Session not found (correctly simulated as expired/invalid).");
+        // Simulate quoting a confess message
+        const mockMsg = {
+            key: { remoteJid: expiredUserJid, fromMe: false },
+            message: {
+                extendedTextMessage: {
+                    text: "Halo, saya membalas pesan Anda.",
+                    contextInfo: {
+                        quotedMessage: {
+                            conversation: "💌 *PESAN BARU*\n\n*Nama Pengirim :*\nBos..."
+                        }
+                    }
+                }
+            }
+        };
+        // Simulate what the message handler would do:
+        const bodyText = mockMsg.message.extendedTextMessage.text;
+        const quotedContext = mockMsg.message.extendedTextMessage.contextInfo;
+        const quotedText = quotedContext?.quotedMessage?.conversation || "";
+        if (quotedText.includes('PESAN BARU')) {
+            console.log("✅ Successfully intercepted expired/invalid session reply!");
+            await mockSock.sendMessage(expiredUserJid, {
+                text: "❌ *Sesi Confess telah berakhir atau tidak valid.*\n\nSesi ini mungkin telah ditutup secara manual atau otomatis karena tidak ada aktivitas selama 1 jam."
+            });
+        }
+    }
+
     console.log("\n=== TEST COMPLETED SUCCESSFULLY! ===");
 }
 

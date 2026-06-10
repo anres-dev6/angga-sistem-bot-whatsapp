@@ -193,6 +193,19 @@ export default async function handleMessage(sock, msg) {
                     updateSessionActivity(sock, activeSession);
                     return; // Intercept and halt further processing
                 }
+            } else if (!activeSession && body.trim() && !body.trim().startsWith('.')) {
+                // Check if the user is replying/quoting a confess-related message but session has expired/invalid
+                const quotedContext = m.message?.extendedTextMessage?.contextInfo;
+                const quotedText = quotedContext?.quotedMessage?.conversation || 
+                                   quotedContext?.quotedMessage?.extendedTextMessage?.text || 
+                                   "";
+                
+                if (quotedText.includes('PESAN BARU') || quotedText.includes('Balasan') || quotedText.includes('Sesi Confess')) {
+                    await sock.sendMessage(from, { 
+                        text: "❌ *Sesi Confess telah berakhir atau tidak valid.*\n\nSesi ini mungkin telah ditutup secara manual atau otomatis karena tidak ada aktivitas selama 1 jam." 
+                    }, { quoted: m });
+                    return; // Intercept and halt further processing
+                }
             }
         } catch (err) {
             console.error('[Handler] Confess forwarding router error:', err);
