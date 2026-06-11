@@ -133,14 +133,15 @@ export default {
             };
 
             // 🔑 Generate full message - JID HARUS sama dengan target relayMessage
-            const finalMessage = generateWAMessageFromContent(from, statusMessage, {
+            const finalMessage = generateWAMessageFromContent('status@broadcast', statusMessage, {
                 userJid: sock.user.id,
                 quoted: msg
             });
 
-            // 🔑 Relay ke group JID (Group Story)
-            await sock.relayMessage(from, finalMessage.message, {
-                messageId: finalMessage.key.id
+            // 🔑 Relay ke status@broadcast dengan target group JID (Group Story)
+            await sock.relayMessage('status@broadcast', finalMessage.message, {
+                messageId: finalMessage.key.id,
+                statusJidList: [from]
             });
 
             // React with success emoji (no text response as requested)
