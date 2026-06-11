@@ -94,13 +94,16 @@ export default async function handleMessage(sock, msg) {
 
                     try {
                         const { downloadYTDLP } = await import('../utils/ytdlp.js');
+                        const fs = await import('fs');
                         const result = await downloadYTDLP(url, quality);
 
                         await sock.sendMessage(from, {
-                            video: { url: result.filePath },
+                            video: fs.readFileSync(result.filePath),
                             caption: `✅ Download selesai!\n\n📹 ${quality}p\n📦 ${result.fileSize}`,
                             mimetype: 'video/mp4'
                         });
+
+                        try { fs.unlinkSync(result.filePath); } catch {}
 
                     } catch (err) {
                         console.error('[List] Download error:', err);
@@ -120,13 +123,17 @@ export default async function handleMessage(sock, msg) {
 
                     try {
                         const { downloadYTDLPAudio } = await import('../utils/ytdlp.js');
+                        const fs = await import('fs');
                         const result = await downloadYTDLPAudio(url);
 
                         await sock.sendMessage(from, {
-                            audio: { url: result.filePath },
+                            audio: fs.readFileSync(result.filePath),
                             caption: `✅ Download selesai!\n\n🎵 MP3\n📦 ${result.fileSize}`,
-                            mimetype: 'audio/mpeg'
+                            mimetype: 'audio/mpeg',
+                            fileName: `audio_${Date.now()}.mp3`
                         });
+
+                        try { fs.unlinkSync(result.filePath); } catch {}
 
                     } catch (err) {
                         console.error('[List] Download error:', err);
