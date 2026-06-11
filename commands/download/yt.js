@@ -40,20 +40,6 @@ export default {
             // Get video info
             const info = await getVideoInfo(url);
 
-            // Create session with yt-dlp engine
-            const { createSession } = await import('../../utils/sessionManager.js');
-            createSession(from, {
-                engine: 'yt-dlp',
-                stage: 'select_quality',
-                url: url,
-                qualities: {
-                    video: [144, 240, 360, 480, 720, 1080],
-                    audio: []
-                },
-                platform: 'youtube',
-                title: info.title
-            });
-
             // Use pagination system
             const qualities = {
                 video: [144, 240, 360, 480, 720, 1080],
@@ -66,14 +52,15 @@ export default {
                 info.title,
                 'youtube',
                 qualities,
-                url,
-                0 // Start at page 0
+                url
             );
 
             // Delete progress message
-            await sock.sendMessage(from, {
-                delete: progressMsg.key
-            });
+            try {
+                await sock.sendMessage(from, {
+                    delete: progressMsg.key
+                });
+            } catch {}
 
         } catch (err) {
             console.error('[YouTube] Error:', err);
