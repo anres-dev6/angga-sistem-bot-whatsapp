@@ -40,18 +40,14 @@ export default {
             // Get video info
             const info = await getVideoInfo(url);
 
-            // Use pagination system
-            const qualities = {
-                video: [144, 240, 360, 480, 720, 1080],
-                audio: []
-            };
+            const { sendVideoQualityList } = await import('../../utils/interactiveMessage.js');
 
-            await sendUniversalQualityList(
+            await sendVideoQualityList(
                 sock,
                 from,
                 info.title,
-                'youtube',
-                qualities,
+                info.uploader || 'Unknown',
+                formatDuration(info.duration),
                 url
             );
 
