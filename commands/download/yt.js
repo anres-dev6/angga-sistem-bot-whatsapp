@@ -1,11 +1,11 @@
-import { getVideoInfo, formatDuration } from '../../utils/ytdlp.js';
-import { sendUniversalQualityList } from '../../utils/interactiveMessage.js';
+import { getVideoInfo, formatDuration, downloadYTDLP } from '../../utils/ytdlp.js';
+import fs from 'fs';
 
 export default {
     name: 'yt',
     aliases: ['yt', 'youtube', 'ytdl'],
     tags: ['download'],
-    description: 'Download YouTube video dengan pilihan kualitas',
+    description: 'Download YouTube video (Max 720p)',
     access: {
         owner: false,
         group: false,
@@ -32,36 +32,50 @@ export default {
             }
 
             progressMsg = await sock.sendMessage(from, {
-                text: "⏳ *Mengambil info video...*"
+                text: "⏳ *Mendownload video YouTube (Max 720p)...*"
             }, { quoted: msg });
 
-            console.log('[YouTube] Getting video info:', url);
+            console.log('[YouTube] Downloading video:', url);
 
             // Get video info
             const info = await getVideoInfo(url);
 
-            const { sendVideoQualityList } = await import('../../utils/interactiveMessage.js');
+            // Download using the 720p quality target (with audio)
+            const result = await downloadYTDLP(url, '720');
 
-            await sendVideoQualityList(
-                sock,
-                from,
-                info.title,
-                info.uploader || 'Unknown',
-                formatDuration(info.duration),
-                url
-            );
+            const stats = fs.statSync(result.filePath);
+            const fileSizeMB = stats.size / (1024 * 1024);
 
-            // Delete progress message
-            try {
-                await sock.sendMessage(from, {
-                    delete: progressMsg.key
+            if (fileSizeMB > 100) {
+                fs.unlinkSync(result.filePath);
+                return sock.sendMessage(from, {
+                    text: '❌ File terlalu besar (>100MB)!',
+                    edit: progressMsg.key
                 });
-            } catch {}
+            }
+
+            await sock.sendMessage(from, {
+                text: '📤 *Mengirim video...*',
+                edit: progressMsg.key
+            });
+
+            await sock.sendMessage(from, {
+                video: fs.readFileSync(result.filePath),
+                caption: `🎬 *${info.title}*\n\n👤 Uploader: ${info.uploader || 'Unknown'}\n⏱️ Durasi: ${formatDuration(info.duration)}\n📦 Size: ${fileSizeMB.toFixed(2)}MB`,
+                mimetype: 'video/mp4'
+            });
+
+            fs.unlinkSync(result.filePath);
+
+            await sock.sendMessage(from, {
+                text: '✅ *Selesai!*',
+                edit: progressMsg.key
+            });
 
         } catch (err) {
             console.error('[YouTube] Error:', err);
 
-            let errorMsg = '❌ *Gagal mengambil info video!*\n\n';
+            let errorMsg = '❌ *Gagal mendownload video!*\n\n';
 
             if (err.message.includes('private')) {
                 errorMsg += '🔒 Video private atau age-restricted.';

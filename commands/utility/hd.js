@@ -26,10 +26,12 @@ export default {
             const imageMsg = quoted
                 ? quoted.imageMessage ||
                 quoted.viewOnceMessage?.message?.imageMessage ||
-                quoted.viewOnceMessageV2?.message?.imageMessage
+                quoted.viewOnceMessageV2?.message?.imageMessage ||
+                quoted.viewOnceMessageV2Extension?.message?.imageMessage
                 : m.message?.imageMessage ||
                 m.message?.viewOnceMessage?.message?.imageMessage ||
-                m.message?.viewOnceMessageV2?.message?.imageMessage
+                m.message?.viewOnceMessageV2?.message?.imageMessage ||
+                m.message?.viewOnceMessageV2Extension?.message?.imageMessage
 
             const mime = imageMsg?.mimetype || ''
 
@@ -47,9 +49,27 @@ export default {
             })
 
             // Download media
-            const msgToDownload = quoted
-                ? { message: quoted.viewOnceMessage?.message || quoted }
-                : m
+            let msgToDownload
+            if (quoted) {
+                const quotedContext = m.message?.extendedTextMessage?.contextInfo
+                msgToDownload = {
+                    key: {
+                        remoteJid: quotedContext.participant || m.key.remoteJid,
+                        fromMe: false,
+                        id: quotedContext.stanzaId
+                    },
+                    message: {
+                        imageMessage: imageMsg
+                    }
+                }
+            } else {
+                msgToDownload = {
+                    key: m.key,
+                    message: {
+                        imageMessage: imageMsg
+                    }
+                }
+            }
 
             const buffer = await downloadMediaMessage(
                 msgToDownload,
@@ -104,23 +124,55 @@ export default {
                 for (const provider of providers) {
                     try {
                         // console.log(`[HD] Trying ${provider.name}...`)
-                        response = await axios.get(provider.url, {
+                        const res = await axios.get(provider.url, {
                             responseType: 'arraybuffer',
-                            timeout: 5000, // Short timeout for rapid failover to local processing
+                            timeout: 10000,
                             headers: {
-                                'User-Agent': 'okhttp/4.9.0'
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                             }
                         })
 
-                        const contentType = response.headers['content-type'] || ''
+                        let contentType = res.headers['content-type'] || ''
+                        let imageBuffer = res.data
+
+                        // If response is JSON, parse and download the image URL
+                        if (contentType.includes('application/json') || (!contentType.startsWith('image/') && res.data)) {
+                            try {
+                                const jsonStr = res.data.toString('utf8')
+                                const jsonObj = JSON.parse(jsonStr)
+                                const extractedUrl = jsonObj.result || jsonObj.url || (jsonObj.data && typeof jsonObj.data === 'string' ? jsonObj.data : null) || (jsonObj.result && jsonObj.result.url)
+                                
+                                if (extractedUrl && typeof extractedUrl === 'string' && extractedUrl.startsWith('http')) {
+                                    console.log(`[HD] Extracted URL from ${provider.name} JSON response:`, extractedUrl)
+                                    const imgRes = await axios.get(extractedUrl, {
+                                        responseType: 'arraybuffer',
+                                        timeout: 15000,
+                                        headers: {
+                                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                                        }
+                                    })
+                                    const imgContentType = imgRes.headers['content-type'] || ''
+                                    if (imgContentType.startsWith('image/')) {
+                                        imageBuffer = imgRes.data
+                                        contentType = imgContentType
+                                    } else {
+                                        throw new Error(`Extracted URL response is not an image (${imgContentType})`)
+                                    }
+                                } else {
+                                    throw new Error(`Could not find image URL in JSON response: ${jsonStr.slice(0, 100)}`)
+                                }
+                            } catch (jsonErr) {
+                                throw new Error(`Failed to parse JSON response: ${jsonErr.message}`)
+                            }
+                        }
 
                         // ❌ BLOCK HTML / NON-IMAGE
                         if (!contentType.startsWith('image/')) {
-                            const preview = response.data.slice(0, 50).toString('utf8')
-                            throw new Error(`Response bukan image (${contentType}). Preview: ${preview}`)
+                            throw new Error(`Response bukan image (${contentType})`)
                         }
 
                         // ✅ SUCCESS
+                        response = { data: imageBuffer }
                         success = true
                         break // Stop looping
 
