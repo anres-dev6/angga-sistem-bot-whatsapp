@@ -32,8 +32,11 @@ export default {
                 text: "⏳ *Checking livestream...*"
             }, { quoted: msg });
 
+            const { getYtdlpPath, getYtdlpBaseArgs } = await import('../../utils/ytdlpBinary.js');
+            const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
+
             // Check if it's a live stream
-            const infoCmd = `yt-dlp --dump-json --no-warnings "${url}"`;
+            const infoCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --dump-json "${url}"`;
             const { stdout } = await execPromise(infoCmd, { maxBuffer: 10 * 1024 * 1024 });
             const info = JSON.parse(stdout);
 
@@ -62,7 +65,7 @@ export default {
                 }
 
                 // Record for max 5 minutes
-                const recordCmd = `yt-dlp -f "best[height<=720]" --live-from-start --max-downloads 1 --download-sections "*0:00-5:00" -o "${outputPath}" "${url}"`;
+                const recordCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} -f "best[height<=720]" --live-from-start --max-downloads 1 --download-sections "*0:00-5:00" -o "${outputPath.replace(/\\/g, '/')}" "${url}"`;
 
                 await execPromise(recordCmd, {
                     timeout: 360000, // 6 minutes
@@ -111,7 +114,7 @@ export default {
                     fs.mkdirSync(tempDir, { recursive: true });
                 }
 
-                const downloadCmd = `yt-dlp -f "best[height<=720]" -o "${outputPath}" "${url}"`;
+                const downloadCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} -f "best[height<=720]" -o "${outputPath.replace(/\\/g, '/')}" "${url}"`;
 
                 await execPromise(downloadCmd, {
                     timeout: 180000,

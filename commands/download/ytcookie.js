@@ -46,8 +46,12 @@ export default {
                 fs.mkdirSync(tempDir, { recursive: true });
             }
 
+            const { getYtdlpPath, getYtdlpBaseArgs } = await import('../../utils/ytdlpBinary.js');
+            const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
+            const safeCookiesPath = cookiesPath.replace(/\\/g, '/');
+
             // Download with cookies
-            const downloadCmd = `yt-dlp --cookies "${cookiesPath}" -f "best[height<=720]" -o "${outputPath}" "${url}"`;
+            const downloadCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --cookies "${safeCookiesPath}" -f "best[height<=720]" -o "${outputPath.replace(/\\/g, '/')}" "${url}"`;
 
             await execPromise(downloadCmd, {
                 timeout: 180000,

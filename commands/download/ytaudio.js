@@ -47,17 +47,21 @@ export default {
                 fs.mkdirSync(tempDir, { recursive: true });
             }
 
+            const { getYtdlpPath, getYtdlpBaseArgs } = await import('../../utils/ytdlpBinary.js');
+            const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
+            const safeOutputPath = outputPath.replace(/\\/g, '/');
+
             let downloadCmd;
             if (format === 'm4a') {
                 // M4A: Download best audio without conversion
-                downloadCmd = `yt-dlp -f "bestaudio[ext=m4a]/bestaudio" -o "${outputPath}" "${url}"`;
+                downloadCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} -f "bestaudio[ext=m4a]/bestaudio" -o "${safeOutputPath}" "${url}"`;
             } else if (format === 'flac') {
                 // FLAC: Lossless quality
-                downloadCmd = `yt-dlp -x --audio-format flac -o "${outputPath}" "${url}"`;
+                downloadCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} -x --audio-format flac -o "${safeOutputPath}" "${url}"`;
             } else {
                 // MP3, OPUS, OGG: Convert with quality
                 const quality = format === 'mp3' ? '320K' : '192K';
-                downloadCmd = `yt-dlp -x --audio-format ${format} --audio-quality ${quality} -o "${outputPath}" "${url}"`;
+                downloadCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} -x --audio-format ${format} --audio-quality ${quality} -o "${safeOutputPath}" "${url}"`;
             }
 
             await execPromise(downloadCmd, {

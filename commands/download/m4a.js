@@ -38,8 +38,11 @@ export default {
                 fs.mkdirSync(tempDir, { recursive: true });
             }
 
+            const { getYtdlpPath, getYtdlpBaseArgs } = await import('../../utils/ytdlpBinary.js');
+            const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
+
             // Download best audio in M4A format (no conversion)
-            const downloadCmd = `yt-dlp -f "bestaudio[ext=m4a]/bestaudio" -o "${outputPath}" "${url}"`;
+            const downloadCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} -f "bestaudio[ext=m4a]/bestaudio" -o "${outputPath.replace(/\\/g, '/')}" "${url}"`;
 
             await execPromise(downloadCmd, {
                 timeout: 60000,

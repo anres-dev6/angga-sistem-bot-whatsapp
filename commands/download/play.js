@@ -36,6 +36,9 @@ export default {
 
             let url, title, duration;
 
+            const { getYtdlpPath, getYtdlpBaseArgs } = await import('../../utils/ytdlpBinary.js');
+            const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
+
             // Check if input is URL or search query
             if (input.includes('youtube.com') || input.includes('youtu.be')) {
                 // Direct URL
@@ -43,7 +46,7 @@ export default {
 
                 // Get video info
                 try {
-                    const infoCmd = `yt-dlp --get-title --get-duration "${url}"`;
+                    const infoCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --get-title --get-duration "${url}"`;
                     const { stdout } = await execPromise(infoCmd, { timeout: 10000 });
                     const lines = stdout.trim().split('\n');
                     title = lines[0] || 'Unknown';
@@ -55,7 +58,7 @@ export default {
             } else {
                 // Search query
                 try {
-                    const searchCmd = `yt-dlp "ytsearch1:${input}" --get-id --get-title --get-duration --no-warnings`;
+                    const searchCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} "ytsearch1:${input}" --get-id --get-title --get-duration`;
                     const { stdout } = await execPromise(searchCmd, { timeout: 15000 });
 
                     const lines = stdout.trim().split('\n');

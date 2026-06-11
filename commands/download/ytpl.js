@@ -52,8 +52,12 @@ export default {
                 fs.mkdirSync(tempDir, { recursive: true });
             }
 
+            const { getYtdlpPath, getYtdlpBaseArgs } = await import('../../utils/ytdlpBinary.js');
+            const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
+            const safeOutputTemplate = path.join(tempDir, '%(playlist_index)s - %(title)s.%(ext)s').replace(/\\/g, '/');
+
             // Download playlist
-            const downloadCmd = `yt-dlp --playlist-end ${maxVideos} -f "best[height<=720]" -o "${path.join(tempDir, '%(playlist_index)s - %(title)s.%(ext)s')}" "${url}"`;
+            const downloadCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --playlist-end ${maxVideos} -f "best[height<=720]" -o "${safeOutputTemplate}" "${url}"`;
 
             console.log('[Playlist] Downloading...');
 

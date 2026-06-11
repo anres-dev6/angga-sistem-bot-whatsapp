@@ -38,8 +38,11 @@ export default {
                 fs.mkdirSync(tempDir, { recursive: true });
             }
 
+            const { getYtdlpPath, getYtdlpBaseArgs } = await import('../../utils/ytdlpBinary.js');
+            const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
+
             // Download with geo-bypass
-            const downloadCmd = `yt-dlp --geo-bypass -f "best[height<=720]" -o "${outputPath}" "${url}"`;
+            const downloadCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --geo-bypass -f "best[height<=720]" -o "${outputPath.replace(/\\/g, '/')}" "${url}"`;
 
             await execPromise(downloadCmd, {
                 timeout: 180000,
