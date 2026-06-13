@@ -5,6 +5,7 @@ import { getCommand, loadCommands } from "./command.js";
 import fs from "fs";
 import config from "../config.js";
 import { loadOwners } from "../utils/security.js";
+import { isBlacklisted } from "../utils/blacklist.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2013,6 +2014,11 @@ export default async function handleMessage(sock, msg) {
         //        HANDLE COMMAND
         // ============================================
         if (!body.startsWith(".")) return;
+
+        // Check if sender is blacklisted
+        if (isBlacklisted(senderNumber) && !isOwner) {
+            return sock.sendMessage(from, { text: 'maaf anda telah kami blacklist' }, { quoted: m });
+        }
 
         const cmdName = body.slice(1).trim().split(" ")[0].toLowerCase();
         const args = body.trim().split(" ").slice(1);
