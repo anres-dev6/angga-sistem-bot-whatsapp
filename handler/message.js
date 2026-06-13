@@ -54,6 +54,46 @@ export default async function handleMessage(sock, msg) {
             return;
         }
 
+        const body =
+            m.message.conversation ||
+            m.message.imageMessage?.caption ||
+            m.message.videoMessage?.caption ||
+            m.message.extendedTextMessage?.text ||
+            "";
+
+        const from = m.key.remoteJid;
+        const isGroup = from.endsWith('@g.us');
+        const sender = isGroup ? (m.key.participant || m.participant) : from;
+        if (!sender) return;
+
+        // Extract phone number from sender (remove @s.whatsapp.net or @c.us or @lid)
+        const senderNumber = sender.split('@')[0].split(':')[0].replace(/\D/g, ''); // Remove non-digits
+
+        // Load owners from JSON file
+        const owners = loadOwners();
+        const isOwner = owners.includes(senderNumber);
+
+        // Check if sender is blacklisted
+        const isBlocked = isBlacklisted(senderNumber) && !isOwner;
+        if (isBlocked) {
+            if (!isGroup) {
+                // PC: total block
+                return sock.sendMessage(from, { text: 'maaf anda telah kami blacklist' }, { quoted: m });
+            } else {
+                // GC: block command / features only, allow normal chat
+                const isCommand = body.startsWith('.') || 
+                                  !!m.message?.listResponseMessage || 
+                                  !!m.message?.buttonsResponseMessage || 
+                                  !!m.message?.interactiveResponseMessage ||
+                                  !!m.message?.templateButtonReplyMessage;
+                if (isCommand) {
+                    return sock.sendMessage(from, { text: 'maaf anda telah kami blacklist' }, { quoted: m });
+                } else {
+                    return; // Ignore normal chat messages from blacklisted users in groups
+                }
+            }
+        }
+
         // Additional check: Skip if message has Baileys metadata (bot-generated)
         // DISABLED: This blocks legit private messages
         /* if (m.message?.messageContextInfo?.deviceListMetadata || m.message?.deviceSentMessage) {
@@ -71,7 +111,6 @@ export default async function handleMessage(sock, msg) {
             if (!rowId?.startsWith('dl_')) return;
 
             try {
-                const from = m.key.remoteJid;
                 const [, shortId, type] = rowId.split('_');
 
                 console.log('[List] Button clicked:', rowId);
@@ -153,25 +192,6 @@ export default async function handleMessage(sock, msg) {
             return;
         }
 
-        const body =
-
-            m.message.conversation ||
-            m.message.imageMessage?.caption ||
-            m.message.videoMessage?.caption ||
-            m.message.extendedTextMessage?.text ||
-            "";
-
-        const from = m.key.remoteJid;
-        const isGroup = from.endsWith('@g.us');
-        const sender = isGroup ? (m.key.participant || m.participant) : from;
-        if (!sender) return;
-
-        // Extract phone number from sender (remove @s.whatsapp.net or @c.us or @lid)
-        const senderNumber = sender.split('@')[0].split(':')[0].replace(/\D/g, ''); // Remove non-digits
-
-        // Load owners from JSON file
-        const owners = loadOwners();
-        const isOwner = owners.includes(senderNumber);
         let isAdmin = false;
 
         if (isGroup) {
@@ -2015,10 +2035,7 @@ export default async function handleMessage(sock, msg) {
         // ============================================
         if (!body.startsWith(".")) return;
 
-        // Check if sender is blacklisted
-        if (isBlacklisted(senderNumber) && !isOwner) {
-            return sock.sendMessage(from, { text: 'maaf anda telah kami blacklist' }, { quoted: m });
-        }
+        // Check if sender is blacklisted (already handled early)
 
         const cmdName = body.slice(1).trim().split(" ")[0].toLowerCase();
         const args = body.trim().split(" ").slice(1);

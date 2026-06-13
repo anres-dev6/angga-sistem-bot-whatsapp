@@ -6,17 +6,29 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const BOT_DIR = path.resolve(__dirname, '..');
-const DATA_DIR = path.join(BOT_DIR, 'data');
-const BLACKLIST_FILE = path.join(DATA_DIR, 'blacklist.json');
+const authDir = process.env.AUTH_DIR || './auth';
+const BLACKLIST_FILE = path.join(path.resolve(authDir), 'blacklist.json');
+const DATA_DIR = path.dirname(BLACKLIST_FILE);
 
-// Ensure data directory exists
+// Ensure directory exists
 if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Ensure blacklist file exists
+// Ensure blacklist file exists (migrate from old location if available)
 if (!fs.existsSync(BLACKLIST_FILE)) {
-    fs.writeFileSync(BLACKLIST_FILE, JSON.stringify({ blacklist: [] }, null, 2));
+    const oldBlacklistFile = path.join(BOT_DIR, 'data', 'blacklist.json');
+    if (fs.existsSync(oldBlacklistFile)) {
+        try {
+            fs.copyFileSync(oldBlacklistFile, BLACKLIST_FILE);
+            console.log('[Blacklist] Migrated blacklist.json from data/ to auth/');
+        } catch (error) {
+            console.error('[Blacklist] Failed to migrate blacklist file:', error);
+            fs.writeFileSync(BLACKLIST_FILE, JSON.stringify({ blacklist: [] }, null, 2));
+        }
+    } else {
+        fs.writeFileSync(BLACKLIST_FILE, JSON.stringify({ blacklist: [] }, null, 2));
+    }
 }
 
 /**

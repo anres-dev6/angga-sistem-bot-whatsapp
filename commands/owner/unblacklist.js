@@ -1,4 +1,4 @@
-import { removeBlacklist, isBlacklisted } from '../../utils/blacklist.js';
+import { removeBlacklist, isBlacklisted, loadBlacklist } from '../../utils/blacklist.js';
 import { isOwner } from '../../utils/security.js';
 
 export default {
@@ -24,46 +24,65 @@ export default {
         }
 
         try {
+            const targets = [];
+
             // Get target from mention or quoted message
             const quoted = msg.message?.extendedTextMessage?.contextInfo;
             const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
 
-            let targetJid = null;
-
-            // Priority: mention > quoted > manual input
             if (mentions.length > 0) {
-                targetJid = mentions[0];
+                for (const m of mentions) {
+                    const number = m.split('@')[0].replace(/\D/g, '');
+                    if (number) targets.push(number);
+                }
             } else if (quoted?.participant) {
-                targetJid = quoted.participant;
+                const number = quoted.participant.split('@')[0].replace(/\D/g, '');
+                if (number) targets.push(number);
             } else if (args.length > 0) {
-                // Manual input: handles formatted phone numbers with spaces, e.g., +62 876-8876-0987
-                const number = args.join('').replace(/\D/g, '');
-                if (number) {
-                    targetJid = number + '@s.whatsapp.net';
+                const blacklist = loadBlacklist();
+                for (const arg of args) {
+                    const cleanArg = arg.trim();
+                    const num = parseInt(cleanArg);
+                    if (/^\d+$/.test(cleanArg) && !isNaN(num) && num > 0 && num <= blacklist.length) {
+                        // Resolve from index
+                        targets.push(blacklist[num - 1]);
+                    } else {
+                        // Resolve from phone number
+                        const number = cleanArg.replace(/\D/g, '');
+                        if (number) {
+                            targets.push(number);
+                        }
+                    }
                 }
             }
 
-            if (!targetJid) {
+            if (targets.length === 0) {
                 return sock.sendMessage(from, {
-                    text: `❌ *Cara pakai:*\n\n1. Tag: .unblacklist @user\n2. Reply: Reply pesan user lalu .unblacklist\n3. Manual: .unblacklist +62 876-8876-0987 atau .unbl 6287688760987`
+                    text: `❌ *Cara pakai:*\n\n1. Tag: \`.unblacklist @user\`\n2. Reply: Reply pesan user lalu \`.unblacklist\`\n3. Manual: \`.unblacklist +62 876-8876-0987\`\n4. Index: \`.unblacklist 1\` atau \`.unbl 1 2\` (jika lebih dari satu)`
                 });
             }
 
-            const targetNumber = targetJid.split('@')[0].replace(/\D/g, '');
+            const removed = [];
+            const notFound = [];
 
-            // Check if not blacklisted
-            if (!isBlacklisted(targetNumber)) {
-                return sock.sendMessage(from, {
-                    text: `❌ ${targetNumber} tidak ada dalam blacklist!`
-                });
+            for (const targetNumber of targets) {
+                if (isBlacklisted(targetNumber)) {
+                    removeBlacklist(targetNumber);
+                    removed.push(targetNumber);
+                } else {
+                    notFound.push(targetNumber);
+                }
             }
 
-            // Remove from blacklist
-            removeBlacklist(targetNumber);
+            let responseText = '';
+            if (removed.length > 0) {
+                responseText += `✅ *Berhasil dihapus dari blacklist:*\n${removed.map(num => `- +${num}`).join('\n')}\n\n`;
+            }
+            if (notFound.length > 0) {
+                responseText += `❌ *Tidak ada dalam blacklist:*\n${notFound.map(num => `- +${num}`).join('\n')}`;
+            }
 
-            await sock.sendMessage(from, {
-                text: `✅ *Nomor berhasil dihapus dari blacklist!*\n\n📱 Nomor: +${targetNumber}`
-            });
+            await sock.sendMessage(from, { text: responseText.trim() });
 
         } catch (error) {
             console.error('[Unblacklist] Error:', error);

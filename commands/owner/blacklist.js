@@ -1,4 +1,4 @@
-import { addBlacklist, isBlacklisted } from '../../utils/blacklist.js';
+import { addBlacklist, isBlacklisted, loadBlacklist } from '../../utils/blacklist.js';
 import { isOwner } from '../../utils/security.js';
 
 export default {
@@ -27,6 +27,31 @@ export default {
             // Get target from mention or quoted message
             const quoted = msg.message?.extendedTextMessage?.contextInfo;
             const mentions = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+
+            // If "list" action or no arguments/mentions/quoted message, show list
+            const showList = (args[0]?.toLowerCase() === 'list') || (args.length === 0 && mentions.length === 0 && !quoted?.participant);
+
+            if (showList) {
+                const blacklist = loadBlacklist();
+                if (blacklist.length === 0) {
+                    let listText = `📱 *Daftar Blacklist*\n\n_Tidak ada nomor dalam daftar blacklist._\n\n`;
+                    listText += `*Cara pakai:*\n`;
+                    listText += `1. Tag: \`.blacklist @user\`\n`;
+                    listText += `2. Reply: Reply pesan user lalu \`.blacklist\`\n`;
+                    listText += `3. Manual: \`.blacklist 62xxx\` atau \`.bl 62xxx\``;
+                    return sock.sendMessage(from, { text: listText });
+                }
+
+                let listText = `📱 *Daftar Blacklist (${blacklist.length} nomor)*\n\n`;
+                listText += blacklist.map((num, index) => `${index + 1}. +${num}`).join('\n');
+                listText += `\n\n*Cara menggunakan command:*`;
+                listText += `\n- Tag: \`.blacklist @user\``;
+                listText += `\n- Reply: Reply pesan user lalu \`.blacklist\``;
+                listText += `\n- Manual: \`.blacklist 62876xxx\``;
+                listText += `\n- Hapus: \`.unblacklist 62876xxx\``;
+
+                return sock.sendMessage(from, { text: listText });
+            }
 
             let targetJid = null;
 
