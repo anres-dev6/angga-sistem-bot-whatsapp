@@ -1,5 +1,4 @@
 import { downloadContentFromMessage } from 'baileys';
-import sharp from 'sharp';
 import { addStickerMetadata } from '../../Lib/sticker.js';
 import { validateFonts } from '../../utils/fontHelper.js';
 import fs from 'fs';
@@ -193,6 +192,12 @@ export default {
     },
 
     run: async (sock, msg, args) => {
+        let sharp;
+        try {
+            sharp = (await import('sharp')).default;
+        } catch (e) {
+            throw new Error("Modul 'sharp' tidak dapat dimuat pada perangkat ini. Silakan hubungi administrator.");
+        }
         const from = msg.key.remoteJid;
         const q = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         

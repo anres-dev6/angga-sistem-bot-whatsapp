@@ -22,7 +22,8 @@ export default {
 
         commands.forEach((cmd) => {
             if (cmd.hidden || isCommandHidden(cmd.name)) return;
-            if (cmd.access && cmd.access.owner === true) return;
+            if (sock.isUserbot && !sock.userbotFeatures.includes(cmd.name)) return;
+            if (cmd.access && cmd.access.owner === true && !sock.isUserbot) return;
             if (excludedCommands.includes(cmd.name)) return;
 
             const customTag = getCommandTag(cmd.name);

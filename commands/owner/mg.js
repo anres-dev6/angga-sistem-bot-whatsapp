@@ -1,6 +1,6 @@
 export default {
-    name: 'join',
-    aliases: ['joingc', 'join'],
+    name: 'mg',
+    aliases: ['masukgrup', 'join', 'joingc'],
     tags: ['owner'],
     description: 'Join a WhatsApp group via invite link (Private Chat Only)',
     access: {
@@ -17,9 +17,9 @@ export default {
             return sock.sendMessage(from, {
                 text: '❌ *Link invite diperlukan!*\n\n' +
                     '📝 *Cara pakai:*\n' +
-                    '`.join <link_invite>`\n\n' +
+                    '`.mg <link_invite>`\n\n' +
                     '💡 *Contoh:*\n' +
-                    '`.join https://chat.whatsapp.com/ABC123...`'
+                    '`.mg https://chat.whatsapp.com/ABC123...`'
             }, { quoted: msg });
         }
 

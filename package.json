@@ -17,7 +17,6 @@
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
     "@google/generative-ai": "^0.24.1",
-    "@sasmeee/igdl": "^0.0.1-security",
     "ab-downloader": "^1.0.1",
     "axios": "^1.6.0",
     "baileys": "^7.0.0-rc.9",

@@ -1,5 +1,4 @@
 import { downloadMediaMessage } from 'baileys'
-import sharp from 'sharp'
 
 export default {
     name: 'hd',
@@ -13,6 +12,12 @@ export default {
     },
 
     run: async (sock, m) => {
+        let sharp;
+        try {
+            sharp = (await import('sharp')).default;
+        } catch (e) {
+            throw new Error("Modul 'sharp' tidak dapat dimuat pada perangkat ini. Silakan gunakan metode online.");
+        }
         try {
             const quoted = m.message?.extendedTextMessage?.contextInfo?.quotedMessage
             const quotedContext = m.message?.extendedTextMessage?.contextInfo

@@ -2046,9 +2046,50 @@ export default async function handleMessage(sock, msg) {
         if (!command) return;
 
         // --- Permissions Check ---
+        let isOwnerForContext = isOwner;
+
+        if (sock.isUserbot) {
+            const isMainOwner = isOwner;
+            const isUserbotOwner = (senderNumber === sock.userbotNumber);
+
+            if (isMainOwner) {
+                isOwnerForContext = true;
+            } else if (isUserbotOwner) {
+                // Userbot owner only has access to allowed features
+                if (!sock.userbotFeatures.includes(cmdName)) {
+                    return sock.sendMessage(from, { text: '❌ Fitur ini tidak diaktifkan oleh Owner.' }, { quoted: m });
+                }
+                isOwnerForContext = true;
+            } else {
+                // Regular users have no access to commands on userbots
+                return;
+            }
+        }
+
+        // --- Anti Spam / Rate Limit ---
+        if (!isOwnerForContext) {
+            const now = Date.now();
+            if (!global.spamTracker) global.spamTracker = new Map();
+            const userSpam = global.spamTracker.get(sender) || [];
+            const recentSpam = userSpam.filter(timestamp => now - timestamp < 5000);
+            
+            if (recentSpam.length >= 3) {
+                const lastWarn = userSpam.lastWarning || 0;
+                if (now - lastWarn > 5000) {
+                    recentSpam.lastWarning = now;
+                    global.spamTracker.set(sender, recentSpam);
+                    return sock.sendMessage(from, { text: '❌ *Anti-Spam:* Mohon tidak melakukan spam command. Tunggu beberapa detik.' }, { quoted: m });
+                }
+                return; // Ignore silently
+            }
+            
+            recentSpam.push(now);
+            recentSpam.lastWarning = userSpam.lastWarning;
+            global.spamTracker.set(sender, recentSpam);
+        }
 
         // 1. Owner Access
-        if (command.access?.owner && !isOwner) {
+        if (command.access?.owner && !isOwnerForContext) {
             return sock.sendMessage(from, { text: 'Perintah ini hanya untuk owner.' }, { quoted: m });
         }
 
@@ -2066,7 +2107,7 @@ export default async function handleMessage(sock, msg) {
         try {
             await command.run(sock, m, args, {
                 text,
-                isOwner,
+                isOwner: isOwnerForContext,
                 isGroup,
                 isAdmin,
                 sender,
