@@ -1,108 +1,83 @@
+import { addUserbot } from '../../Lib/userbot_manager.js';
+
 export default {
     name: 'addbot',
-    aliases: ['addbot', 'joingroup'],
+    aliases: ['addbot'],
     tags: ['owner'],
-    description: 'Tambahkan bot ke grup menggunakan link invite',
+    description: 'Hubungkan nomor baru menjadi userbot mandiri menggunakan Pairing Code',
     access: {
         owner: true,
         group: false,
         private: false
     },
 
-    run: async (sock, msg, args) => {
+    run: async (sock, msg, args, { text, sender }) => {
         const from = msg.key.remoteJid;
 
         if (args.length === 0) {
             return sock.sendMessage(from, {
-                text: '❌ *Link invite diperlukan!*\n\n' +
-                    '📝 *Cara pakai:*\n' +
-                    '`.addbot <link_invite>`\n\n' +
-                    '💡 *Contoh:*\n' +
-                    '`.addbot https://chat.whatsapp.com/ABC123...`'
+                text: '❌ *Nomor telepon diperlukan!*\n\n' +
+                      '📝 *Cara pakai:*\n' +
+                      '`.addbot <nomor> /<fitur>/<fitur>`\n\n' +
+                      '💡 *Contoh:*\n' +
+                      '`.addbot +6289972839173 /gl`'
             }, { quoted: msg });
         }
 
-        const inviteLink = args[0];
+        const phoneNumber = args[0];
+        const cleanedNumber = phoneNumber.replace(/\D/g, '');
 
-        // Extract invite code from link
-        let inviteCode;
-        try {
-            // Support multiple formats:
-            // https://chat.whatsapp.com/ABC123
-            // chat.whatsapp.com/ABC123
-            // ABC123 (direct code)
-            const match = inviteLink.match(/(?:https?:\/\/)?(?:chat\.)?whatsapp\.com\/([a-zA-Z0-9_-]+)/);
-
-            if (match) {
-                inviteCode = match[1];
-            } else if (/^[a-zA-Z0-9_-]+$/.test(inviteLink)) {
-                // Direct code
-                inviteCode = inviteLink;
-            } else {
-                throw new Error('Format link tidak valid');
-            }
-        } catch (e) {
-            return sock.sendMessage(from, {
-                text: '❌ *Link invite tidak valid!*\n\n' +
-                    '💡 Format yang diterima:\n' +
-                    '• `https://chat.whatsapp.com/ABC123...`\n' +
-                    '• `chat.whatsapp.com/ABC123...`\n' +
-                    '• `ABC123...` (kode langsung)'
-            }, { quoted: msg });
+        if (cleanedNumber.length < 10) {
+            return sock.sendMessage(from, { text: '❌ Nomor telepon tidak valid.' }, { quoted: msg });
         }
 
-        // Send loading message
+        // Parse features
+        const textAfterNum = text.replace(phoneNumber, '').trim();
+        const features = textAfterNum.split('/').map(f => f.trim().toLowerCase()).filter(f => f);
+
         const loading = await sock.sendMessage(from, {
-            text: '⏳ *Bergabung ke grup...*'
+            text: `⏳ *Menginisialisasi sesi baru untuk +${cleanedNumber}...*`
         }, { quoted: msg });
 
         try {
-            // Join the group
-            const response = await sock.groupAcceptInvite(inviteCode);
+            const result = await addUserbot(cleanedNumber, features, sender, sock);
 
-            console.log('[AddBot] Joined group:', response);
+            if (result.pairingCode) {
+                // Return pairing code
+                await sock.sendMessage(from, {
+                    text: `🔑 *PAIRING CODE GENERATED*\n\n` +
+                          `Nomor: +${cleanedNumber}\n` +
+                          `Code: *${result.pairingCode}*\n\n` +
+                          `💡 *Cara menghubungkan:*\n` +
+                          `1. Buka WhatsApp > Linked Devices\n` +
+                          `2. Klik 'Link a Device'\n` +
+                          `3. Pilih 'Link with phone number instead'\n` +
+                          `4. Masukkan kode di atas.`
+                }, { quoted: msg });
 
-            // Get group metadata
-            const metadata = await sock.groupMetadata(response);
+                await sock.sendMessage(from, { delete: loading.key });
+            } else if (result.success) {
+                // If already connected
+                await sock.sendMessage(from, {
+                    text: `BOT CONNECTED\n` +
+                          `Nomor: +${cleanedNumber}\n` +
+                          `Fitur: ${features.join(', ') || 'tidak ada'}\n\n` +
+                          `Aturan:\n` +
+                          `- tidak otomatis mendapat semua fitur\n` +
+                          `- session terpisah\n` +
+                          `- reconnect otomatis\n` +
+                          `- support multi userbot`
+                }, { quoted: msg });
 
-            // Send success message to owner
-            await sock.sendMessage(from, {
-                text: `✅ *Berhasil bergabung!*\n\n` +
-                    `📱 *Grup:* ${metadata.subject}\n` +
-                    `👥 *Anggota:* ${metadata.participants.length}\n` +
-                    `🆔 *ID:* ${response}\n\n` +
-                    `💡 Gunakan \`.listgrup\` untuk melihat semua grup`
-            }, { quoted: msg });
-
-            // Send greeting to the new group
-            await sock.sendMessage(response, {
-                text: `👋 *Halo!*\n\n` +
-                    `Saya adalah bot yang baru bergabung.\n` +
-                    `Gunakan \`.menu\` untuk melihat daftar perintah.`
-            });
-
-            // Delete loading message
-            await sock.sendMessage(from, { delete: loading.key });
+                await sock.sendMessage(from, { delete: loading.key });
+            }
 
         } catch (error) {
             console.error('[AddBot] Error:', error);
-
-            let errorMsg = '❌ *Gagal bergabung ke grup!*\n\n';
-
-            if (error.message?.includes('not-authorized')) {
-                errorMsg += '⚠️ Link sudah tidak valid atau kadaluarsa';
-            } else if (error.message?.includes('already')) {
-                errorMsg += '⚠️ Bot sudah ada di grup tersebut';
-            } else if (error.message?.includes('forbidden')) {
-                errorMsg += '⚠️ Bot tidak diizinkan bergabung (mungkin di-ban)';
-            } else {
-                errorMsg += `⚠️ ${error.message || 'Unknown error'}`;
-            }
-
             await sock.sendMessage(from, {
-                text: errorMsg,
-                edit: loading.key
-            });
+                text: `❌ *Gagal menambahkan bot!*\n\n⚠️ ${error.message || 'Error tidak diketahui'}`
+            }, { quoted: msg });
+            await sock.sendMessage(from, { delete: loading.key });
         }
     }
 };

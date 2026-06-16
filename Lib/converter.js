@@ -2,13 +2,19 @@ import fs from "fs";
 import path from "path";
 import { exec } from "child_process";
 import { tmpdir } from "os";
-import sharp from "sharp";
 
 function getRandomFile(ext) {
     return path.join(tmpdir(), `${Date.now()}.${ext}`);
 }
 
 export async function imageToWebp(buffer) {
+    // Dynamically import sharp to prevent startup crashes when sharp fails to load
+    let sharp;
+    try {
+        sharp = (await import("sharp")).default;
+    } catch (e) {
+        throw new Error("Modul 'sharp' tidak dapat dimuat pada perangkat ini. Silakan hubungi administrator.");
+    }
     // Use SHARP for images (no ffmpeg needed)
     return await sharp(buffer)
         .rotate() // Auto-orient based on EXIF orientation metadata

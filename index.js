@@ -76,6 +76,17 @@ async function startBot() {
             } catch (err) {
                 console.error('[Confess] Import initConfessSessions failed:', err);
             }
+
+            // Initialize active multi-userbots
+            try {
+                import('./Lib/userbot_manager.js').then(({ initUserbots }) => {
+                    initUserbots(sock).catch(err => {
+                        console.error('[Userbot] initUserbots error:', err);
+                    });
+                });
+            } catch (err) {
+                console.error('[Userbot] Import initUserbots failed:', err);
+            }
         } else if (connection === "close") {
             const shouldReconnect = (update.lastDisconnect?.error)?.output?.statusCode !== 401;
             const errorReason = update.lastDisconnect?.error;
