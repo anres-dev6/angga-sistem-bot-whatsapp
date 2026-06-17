@@ -20,12 +20,12 @@ export default {
         const from = msg.key.remoteJid;
         const sender = msg.key.participant || msg.key.remoteJid;
 
-        // Owner check - TEMPORARILY DISABLED FOR DEBUGGING
-        // if (!isOwner(sender, config)) {
-        //     return sock.sendMessage(from, {
-        //         text: "❌ Owner-only command!"
-        //     });
-        // }
+        // Owner check
+        if (!isOwner(sender)) {
+            return sock.sendMessage(from, {
+                text: "❌ Owner-only command!"
+            });
+        }
 
         console.log('[PLUGIN] User:', sender);
 

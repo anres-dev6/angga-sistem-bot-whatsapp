@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import config from '../config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,10 +32,17 @@ export const loadOwners = () => {
     try {
         const data = fs.readFileSync(OWNERS_FILE, 'utf8');
         const json = JSON.parse(data);
-        return json.owners || [];
+        const fileOwners = json.owners || [];
+        const configOwners = config.OWNER || [];
+        
+        // Clean both and ensure they are digit strings only, filter out empty ones
+        const cleanFile = fileOwners.map(o => o.toString().replace(/\D/g, '')).filter(Boolean);
+        const cleanConfig = configOwners.map(o => o.toString().replace(/\D/g, '')).filter(Boolean);
+        
+        return [...new Set([...cleanFile, ...cleanConfig])];
     } catch (error) {
         console.error('[Security] Failed to load owners:', error);
-        return [];
+        return config.OWNER ? config.OWNER.map(o => o.toString().replace(/\D/g, '')).filter(Boolean) : [];
     }
 };
 
