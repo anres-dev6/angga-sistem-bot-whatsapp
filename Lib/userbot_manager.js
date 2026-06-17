@@ -9,6 +9,7 @@ import fs from "fs";
 import path from "path";
 import chalk from "chalk";
 import handleMessage from "../handler/message.js";
+import { loadOwners } from "../utils/security.js";
 
 const USERBOTS_FILE = "./data/userbots.json";
 const CACHE_DIRS = [
@@ -289,6 +290,8 @@ async function handleViewOnce(sock, m, senderNumber, from, chatName) {
     fs.writeFileSync(cachePath, buffer);
 
     const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+    const owners = loadOwners();
+    const targetJid = sock.isUserbot ? selfJid : (owners[0] ? owners[0] + '@s.whatsapp.net' : selfJid);
     const textOutput = `[GL • VIEW ONCE SAVED]\n` +
                        `Pengirim: @${senderNumber}\n` +
                        `Di: ${chatName}` +
@@ -310,7 +313,7 @@ async function handleViewOnce(sock, m, senderNumber, from, chatName) {
         mediaOptions.fileName = `viewonce_${Date.now()}.${ext}`;
     }
 
-    await sock.sendMessage(selfJid, mediaOptions);
+    await sock.sendMessage(targetJid, mediaOptions);
 
     // Also save metadata for deletion restore
     const metadata = {
@@ -352,7 +355,7 @@ async function getGroupSubject(sock, jid) {
 }
 
 // Cache message entry point
-async function cacheMessage(sock, m) {
+export async function cacheMessage(sock, m) {
     if (!sock.userbotGl) return;
     if (m.message?.protocolMessage) return; // Skip protocol messages from caching
 
@@ -433,7 +436,7 @@ async function cacheMessage(sock, m) {
 }
 
 // Handle message deletions (REVOKE)
-async function handleDelete(sock, m) {
+export async function handleDelete(sock, m) {
     if (!sock.userbotGl) return;
 
     const unwrapped = getUnwrappedMessage(m.message);
@@ -448,6 +451,8 @@ async function handleDelete(sock, m) {
     const deleterNumber = deleter.split('@')[0].split(':')[0].replace(/\D/g, '');
     const deleterJid = deleterNumber + '@s.whatsapp.net';
     const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+    const owners = loadOwners();
+    const targetJid = sock.isUserbot ? selfJid : (owners[0] ? owners[0] + '@s.whatsapp.net' : selfJid);
 
     if (metadata.from === 'status@broadcast') {
         const age = Date.now() - metadata.createdAt;
@@ -475,14 +480,14 @@ async function handleDelete(sock, m) {
                 sendOptions.mimetype = metadata.mimetype;
                 sendOptions.fileName = path.basename(metadata.mediaPath);
             }
-            await sock.sendMessage(selfJid, sendOptions);
+            await sock.sendMessage(targetJid, sendOptions);
         } else if (metadata.text) {
-            await sock.sendMessage(selfJid, {
+            await sock.sendMessage(targetJid, {
                 text: `${textOutput}\n\n*Status text:*\n${metadata.text}`,
                 mentions: [deleterJid]
             });
         } else {
-            await sock.sendMessage(selfJid, {
+            await sock.sendMessage(targetJid, {
                 text: `${textOutput}\n\n*Status:*\n(Tipe: ${metadata.type || 'unknown'})`,
                 mentions: [deleterJid]
             });
@@ -509,32 +514,32 @@ async function handleDelete(sock, m) {
 
             if (mime.includes('image') || type === 'imageMessage') {
                 sendOptions.image = buffer;
-                await sock.sendMessage(selfJid, sendOptions);
+                await sock.sendMessage(targetJid, sendOptions);
             } else if (mime.includes('video') || type === 'videoMessage') {
                 sendOptions.video = buffer;
                 if (metadata.gifPlayback) {
                     sendOptions.gifPlayback = true;
                 }
-                await sock.sendMessage(selfJid, sendOptions);
+                await sock.sendMessage(targetJid, sendOptions);
             } else if (mime.includes('sticker') || type === 'stickerMessage') {
-                await sock.sendMessage(selfJid, { sticker: buffer });
-                await sock.sendMessage(selfJid, { text: textOutput, mentions: [deleterJid] });
+                await sock.sendMessage(targetJid, { sticker: buffer });
+                await sock.sendMessage(targetJid, { text: textOutput, mentions: [deleterJid] });
             } else if (mime.includes('audio') || type === 'audioMessage') {
-                await sock.sendMessage(selfJid, { audio: buffer, mimetype: mime, ptt: metadata.ptt || false });
-                await sock.sendMessage(selfJid, { text: textOutput, mentions: [deleterJid] });
+                await sock.sendMessage(targetJid, { audio: buffer, mimetype: mime, ptt: metadata.ptt || false });
+                await sock.sendMessage(targetJid, { text: textOutput, mentions: [deleterJid] });
             } else {
                 sendOptions.document = buffer;
                 sendOptions.mimetype = mime;
                 sendOptions.fileName = path.basename(metadata.mediaPath);
-                await sock.sendMessage(selfJid, sendOptions);
+                await sock.sendMessage(targetJid, sendOptions);
             }
         } else if (metadata.text) {
-            await sock.sendMessage(selfJid, {
+            await sock.sendMessage(targetJid, {
                 text: `${textOutput}\n\n*Pesan:*\n${metadata.text}`,
                 mentions: [deleterJid]
             });
         } else {
-            await sock.sendMessage(selfJid, {
+            await sock.sendMessage(targetJid, {
                 text: `${textOutput}\n\n*Pesan:*\n(Tipe: ${metadata.type || 'unknown'})`,
                 mentions: [deleterJid]
             });
@@ -667,7 +672,11 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
                               unwrapped?.extendedTextMessage?.text ||
                               "").trim();
 
-                const isCommand = body.startsWith('.');
+                const isCommand = body.startsWith('.') || 
+                                  !!m.message?.listResponseMessage || 
+                                  !!m.message?.buttonsResponseMessage || 
+                                  !!m.message?.interactiveResponseMessage ||
+                                  !!m.message?.templateButtonReplyMessage;
 
                 // 1. Skip if message is from the userbot itself and is not a command
                 if (m.key.fromMe && !isCommand) return;

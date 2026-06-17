@@ -58,7 +58,11 @@ export default async function handleMessage(sock, msg) {
                 m.message?.extendedTextMessage?.text ||
                 ""
             ).trim();
-            const isCommand = tempBody.startsWith('.');
+            const isCommand = tempBody.startsWith('.') || 
+                              !!m.message?.listResponseMessage || 
+                              !!m.message?.buttonsResponseMessage || 
+                              !!m.message?.interactiveResponseMessage ||
+                              !!m.message?.templateButtonReplyMessage;
             if (!sock.isUserbot || !isCommand) {
                 console.log('[Handler] ⏭️ Skipping - message from bot itself (fromMe)');
                 return;
@@ -224,7 +228,7 @@ export default async function handleMessage(sock, msg) {
 
         const { isSelfModeEnabled } = await import('../Lib/self_manager.js');
         // If self mode is enabled (globally or for this group), only owner messages are processed
-        if (isSelfModeEnabled(from) && !isOwner) {
+        if (!sock.isUserbot && isSelfModeEnabled(from) && !isOwner) {
             console.log(`[Handler] Self mode active for ${from} - ignoring non-owner message`);
             return;
         }

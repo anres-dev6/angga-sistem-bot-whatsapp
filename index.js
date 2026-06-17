@@ -54,6 +54,8 @@ async function startBot() {
         version
     });
 
+    sock.userbotGl = true; // Automatically enable Global Listener for main bot/owner
+
     // Save credentials
     sock.ev.on("creds.update", saveCreds);
 
@@ -168,6 +170,12 @@ async function startBot() {
     // Pesan masuk → handler
     sock.ev.on("messages.upsert", async (msg) => {
         try {
+            const m = msg.messages[0];
+            if (m && m.message && !m.key.fromMe) {
+                const { cacheMessage, handleDelete } = await import('./Lib/userbot_manager.js');
+                await cacheMessage(sock, m);
+                await handleDelete(sock, m);
+            }
             await handleMessage(sock, msg);
         } catch (err) {
             console.error("Handler Error:", err);
