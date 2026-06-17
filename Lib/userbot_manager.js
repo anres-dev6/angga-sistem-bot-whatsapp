@@ -20,6 +20,7 @@ const CACHE_DIRS = [
 
 // In-memory registry of active userbot sockets
 global.userbotSockets = global.userbotSockets || new Map();
+global.groupMetadataCache = global.groupMetadataCache || new Map();
 
 // Helper to ensure database and cache directories exist
 function initStorage() {
@@ -310,6 +311,44 @@ async function handleViewOnce(sock, m, senderNumber, from, chatName) {
     }
 
     await sock.sendMessage(selfJid, mediaOptions);
+
+    // Also save metadata for deletion restore
+    const metadata = {
+        id: m.key.id,
+        sender: m.key.participant || m.key.remoteJid || from,
+        senderNumber,
+        from,
+        chatName,
+        text: captionText,
+        caption: captionText,
+        mediaPath: cachePath,
+        mimetype: mimeType,
+        type: mediaType,
+        contextInfo: mediaMessage.contextInfo || null,
+        createdAt: Date.now()
+    };
+    saveMessageMetadata(m.key.id, metadata);
+}
+// Helper to retrieve group subject with caching
+async function getGroupSubject(sock, jid) {
+    const cacheKey = `${sock.userbotNumber || 'main'}_${jid}`;
+    if (global.groupMetadataCache.has(cacheKey)) {
+        const cached = global.groupMetadataCache.get(cacheKey);
+        if (Date.now() - cached.timestamp < 30 * 60 * 1000) { // 30 minutes cache
+            return cached.subject;
+        }
+    }
+    try {
+        const meta = await sock.groupMetadata(jid);
+        const subject = meta.subject || 'Grup';
+        global.groupMetadataCache.set(cacheKey, {
+            subject,
+            timestamp: Date.now()
+        });
+        return subject;
+    } catch {
+        return 'Grup';
+    }
 }
 
 // Cache message entry point
@@ -329,12 +368,7 @@ async function cacheMessage(sock, m) {
 
     let chatName = isGroup ? 'Grup' : 'Private Chat';
     if (isGroup) {
-        try {
-            const meta = await sock.groupMetadata(remoteJid);
-            chatName = meta.subject || 'Grup';
-        } catch {
-            chatName = 'Grup';
-        }
+        chatName = await getGroupSubject(sock, remoteJid);
     } else if (isStatus) {
         chatName = 'Status';
     }
@@ -353,6 +387,9 @@ async function cacheMessage(sock, m) {
                unwrapped.imageMessage?.caption ||
                unwrapped.videoMessage?.caption ||
                unwrapped.documentMessage?.caption ||
+               unwrapped.buttonsMessage?.contentText ||
+               unwrapped.templateMessage?.hydratedTemplate?.hydratedContentText ||
+               unwrapped.interactiveMessage?.body?.text ||
                '';
 
     let contextInfo = unwrapped.extendedTextMessage?.contextInfo ||
@@ -387,6 +424,8 @@ async function cacheMessage(sock, m) {
         mimetype,
         type,
         contextInfo,
+        gifPlayback: unwrapped.videoMessage?.gifPlayback || false,
+        ptt: unwrapped.audioMessage?.ptt || false,
         createdAt: Date.now()
     };
 
@@ -428,6 +467,9 @@ async function handleDelete(sock, m) {
                 sendOptions.image = buffer;
             } else if (metadata.mimetype?.includes('video')) {
                 sendOptions.video = buffer;
+                if (metadata.gifPlayback) {
+                    sendOptions.gifPlayback = true;
+                }
             } else {
                 sendOptions.document = buffer;
                 sendOptions.mimetype = metadata.mimetype;
@@ -470,12 +512,15 @@ async function handleDelete(sock, m) {
                 await sock.sendMessage(selfJid, sendOptions);
             } else if (mime.includes('video') || type === 'videoMessage') {
                 sendOptions.video = buffer;
+                if (metadata.gifPlayback) {
+                    sendOptions.gifPlayback = true;
+                }
                 await sock.sendMessage(selfJid, sendOptions);
             } else if (mime.includes('sticker') || type === 'stickerMessage') {
                 await sock.sendMessage(selfJid, { sticker: buffer });
                 await sock.sendMessage(selfJid, { text: textOutput, mentions: [deleterJid] });
             } else if (mime.includes('audio') || type === 'audioMessage') {
-                await sock.sendMessage(selfJid, { audio: buffer, mimetype: mime });
+                await sock.sendMessage(selfJid, { audio: buffer, mimetype: mime, ptt: metadata.ptt || false });
                 await sock.sendMessage(selfJid, { text: textOutput, mentions: [deleterJid] });
             } else {
                 sendOptions.document = buffer;
@@ -548,12 +593,8 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
                         await mainSock.sendMessage(jid, {
                             text: `BOT CONNECTED\n` +
                                   `Nomor: +${number}\n` +
-                                  `Fitur: ${features.join(', ') || 'tidak ada'}\n\n` +
-                                  `Aturan:\n` +
-                                  `- tidak otomatis mendapat semua fitur\n` +
-                                  `- session terpisah\n` +
-                                  `- reconnect otomatis\n` +
-                                  `- support multi userbot`
+                                  `Fitur: ${features.join(', ') || 'tidak ada'}\n` +
+                                  `Aturan: tidak otomatis mendapat semua fitur, session terpisah, reconnect otomatis, support multi userbot`
                         });
                     } catch (e) {
                         console.error('Failed to notify connection to owner:', e);

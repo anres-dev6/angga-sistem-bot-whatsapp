@@ -31,11 +31,8 @@ export default {
 
             await sock.sendMessage(from, {
                 text: `BOT REMOVED\n` +
-                      `Nomor: +${removedNumber}\n\n` +
-                      `Aturan:\n` +
-                      `- hapus session\n` +
-                      `- revoke permission\n` +
-                      `- logout`
+                      `Nomor: +${removedNumber}\n` +
+                      `Aturan: hanya owner`
             }, { quoted: msg });
 
         } catch (error) {

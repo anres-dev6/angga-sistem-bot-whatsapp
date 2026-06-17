@@ -2089,7 +2089,7 @@ export default async function handleMessage(sock, msg) {
         }
 
         // 1. Owner Access
-        if (command.access?.owner && !isOwnerForContext) {
+        if (command.access?.owner && !isOwner) {
             return sock.sendMessage(from, { text: 'Perintah ini hanya untuk owner.' }, { quoted: m });
         }
 

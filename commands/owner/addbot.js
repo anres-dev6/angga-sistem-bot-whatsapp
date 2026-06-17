@@ -61,12 +61,8 @@ export default {
                 await sock.sendMessage(from, {
                     text: `BOT CONNECTED\n` +
                           `Nomor: +${cleanedNumber}\n` +
-                          `Fitur: ${features.join(', ') || 'tidak ada'}\n\n` +
-                          `Aturan:\n` +
-                          `- tidak otomatis mendapat semua fitur\n` +
-                          `- session terpisah\n` +
-                          `- reconnect otomatis\n` +
-                          `- support multi userbot`
+                          `Fitur: ${features.join(', ') || 'tidak ada'}\n` +
+                          `Aturan: tidak otomatis mendapat semua fitur, session terpisah, reconnect otomatis, support multi userbot`
                 }, { quoted: msg });
 
                 await sock.sendMessage(from, { delete: loading.key });

@@ -36,11 +36,8 @@ export default {
             await sock.sendMessage(from, {
                 text: `FEATURE UPDATED\n` +
                       `Nomor: +${updatedBot.number}\n` +
-                      `Fitur: ${updatedBot.features.join(', ') || 'tidak ada'}\n\n` +
-                      `Aturan:\n` +
-                      `- tidak pairing ulang\n` +
-                      `- merge permission\n` +
-                      `- aktif realtime`
+                      `Fitur: ${updatedBot.features.join(', ') || 'tidak ada'}\n` +
+                      `Aturan: tidak pairing ulang`
             }, { quoted: msg });
 
         } catch (error) {

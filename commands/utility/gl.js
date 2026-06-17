@@ -1,4 +1,5 @@
 import { toggleUserbotGl } from '../../Lib/userbot_manager.js';
+import { isOwner } from '../../utils/security.js';
 
 export default {
     name: 'gl',
@@ -21,8 +22,11 @@ export default {
             }, { quoted: msg });
         }
 
+        const sender = msg.key.participant || msg.key.remoteJid || '';
+        const isMainOwner = isOwner(sender);
+
         // Verify if userbot has 'gl' feature permission
-        if (!sock.userbotFeatures.includes('gl')) {
+        if (!sock.userbotFeatures.includes('gl') && !isMainOwner) {
             return sock.sendMessage(from, {
                 text: '❌ Fitur ini tidak diaktifkan oleh Owner.'
             }, { quoted: msg });
