@@ -481,6 +481,15 @@ export default async function handleMessage(sock, msg) {
 
                     console.log('[Handler] Interactive selection:', selectedId);
 
+                    // ============================================
+                    //  INTERACTIVE AUTO DOWNLOAD RESPONSE HANDLER
+                    // ============================================
+                    if (selectedId && selectedId.startsWith('iadl_')) {
+                        const { handleInteractiveResponse } = await import('../utils/interactiveAutoDL.js');
+                        const handled = await handleInteractiveResponse(sock, m);
+                        if (handled) return;
+                    }
+
                     // Extract quality and URL from ID
                     // Universal format: dl_video_720_https://...
                     // or: dl_audio_128_https://...
@@ -1759,6 +1768,36 @@ export default async function handleMessage(sock, msg) {
         }
 
 
+
+        // ============================================
+        //  INTERACTIVE AUTO DOWNLOAD (TikTok, IG, FB, YT)
+        // ============================================
+        if (!body.startsWith(".") && body.trim().length > 0) {
+            const { isAutoDLEnabled } = await import('../Lib/autodl_manager.js');
+            const { isAutoDLV2Enabled } = await import('../Lib/autodlv2_manager.js');
+            const { isAutoDLV3Enabled } = await import('../Lib/autodlv3_manager.js');
+            
+            // Cek apakah fitur autodl aktif di room ini
+            if (isAutoDLEnabled(from) || isAutoDLV2Enabled(from) || isAutoDLV3Enabled(from)) {
+                const { extractURLs } = await import('../utils/platformDetector.js');
+                const urls = extractURLs(body);
+
+                if (urls.length > 0) {
+                    const urlInfo = urls[0];
+                    const targetPlatforms = ['youtube', 'instagram', 'tiktok', 'facebook'];
+                    
+                    if (targetPlatforms.includes(urlInfo.platform)) {
+                        try {
+                            const { sendInteractiveButtons } = await import('../utils/interactiveAutoDL.js');
+                            await sendInteractiveButtons(sock, from, urlInfo.url, urlInfo.platform);
+                            return; // Menghentikan proses agar tidak langsung mendownload secara otomatis
+                        } catch (err) {
+                            console.error('[Interactive AutoDL] Gagal mengirim tombol interaktif:', err);
+                        }
+                    }
+                }
+            }
+        }
 
         // ============================================
         //         AUTO DOWNLOAD V3 (Universal Engine)
