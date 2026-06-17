@@ -49,9 +49,20 @@ export default async function handleMessage(sock, msg) {
         if (m.key && m.key.remoteJid === 'status@broadcast') return;
 
         // CRITICAL: Ignore messages from bot itself (double protection)
+        // Except if it's a userbot and the message is a command starting with '.'
         if (m.key.fromMe) {
-            console.log('[Handler] ⏭️ Skipping - message from bot itself (fromMe)');
-            return;
+            const tempBody = (
+                m.message?.conversation ||
+                m.message?.imageMessage?.caption ||
+                m.message?.videoMessage?.caption ||
+                m.message?.extendedTextMessage?.text ||
+                ""
+            ).trim();
+            const isCommand = tempBody.startsWith('.');
+            if (!sock.isUserbot || !isCommand) {
+                console.log('[Handler] ⏭️ Skipping - message from bot itself (fromMe)');
+                return;
+            }
         }
 
         const body =
@@ -63,7 +74,10 @@ export default async function handleMessage(sock, msg) {
 
         const from = m.key.remoteJid;
         const isGroup = from.endsWith('@g.us');
-        const sender = isGroup ? (m.key.participant || m.participant) : from;
+        let sender = isGroup ? (m.key.participant || m.participant) : from;
+        if (m.key.fromMe && sock.user?.id) {
+            sender = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+        }
         if (!sender) return;
 
         // Extract phone number from sender (remove @s.whatsapp.net or @c.us or @lid)
@@ -2050,7 +2064,7 @@ export default async function handleMessage(sock, msg) {
 
         if (sock.isUserbot) {
             const isMainOwner = isOwner;
-            const isUserbotOwner = (senderNumber === sock.userbotNumber);
+            const isUserbotOwner = (senderNumber === sock.userbotNumber || senderNumber === sock.userbotCreator);
 
             if (isMainOwner) {
                 isOwnerForContext = true;

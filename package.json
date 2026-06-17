@@ -19,7 +19,7 @@
     "@google/generative-ai": "^0.24.1",
     "ab-downloader": "^1.0.1",
     "axios": "^1.6.0",
-    "baileys": "^7.0.0-rc.9",
+    "baileys": "npm:@elrayyxml/baileys",
     "btch-downloader": "^6.0.32",
     "chalk": "^5.3.0",
     "cheerio": "^1.1.2",

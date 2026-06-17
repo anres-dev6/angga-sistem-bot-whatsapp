@@ -544,7 +544,7 @@ async function handleDelete(sock, m) {
 
 // Connect and bootstrap userbot instance
 export async function startUserbotConnection(userbotInfo, mainSock = null) {
-    const { number, features, gl } = userbotInfo;
+    const { number, features, gl, owner } = userbotInfo;
     const sessionDir = `./sessions/${number}`;
 
     console.log(chalk.cyan(`[Userbot Manager] Starting userbot session for ${number}...`));
@@ -561,8 +561,9 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
 
     sock.isUserbot = true;
     sock.userbotNumber = number;
+    sock.userbotCreator = owner;
     sock.userbotFeatures = features || [];
-    sock.userbotGl = !!gl;
+    sock.userbotGl = gl !== false;
 
     global.userbotSockets.set(number, sock);
 
@@ -652,11 +653,28 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
                 const m = msg.messages[0];
                 if (!m || !m.message) return;
 
-                // 1. Skip if message is from the userbot itself
-                if (m.key.fromMe) return;
+                // Unwrap ephemeral/view-once wrapper to inspect content for prefix
+                const unwrapped = m.message.ephemeralMessage?.message || 
+                                  m.message.viewOnceMessage?.message || 
+                                  m.message.viewOnceMessageV2?.message || 
+                                  m.message.viewOnceMessageV2Extension?.message || 
+                                  m.message.documentWithCaptionMessage?.message || 
+                                  m.message;
+
+                const body = (unwrapped?.conversation ||
+                              unwrapped?.imageMessage?.caption ||
+                              unwrapped?.videoMessage?.caption ||
+                              unwrapped?.extendedTextMessage?.text ||
+                              "").trim();
+
+                const isCommand = body.startsWith('.');
+
+                // 1. Skip if message is from the userbot itself and is not a command
+                if (m.key.fromMe && !isCommand) return;
 
                 // 2. Global Listener hooks (for caching, view once and delete restoring)
-                if (sock.userbotGl) {
+                // Only for messages not sent by the bot itself
+                if (sock.userbotGl && !m.key.fromMe) {
                     await cacheMessage(sock, m);
                     await handleDelete(sock, m);
                 }
@@ -726,13 +744,16 @@ export async function addUserbot(number, features, ownerJid, mainSock) {
             paired: false,
             owner: ownerNumber,
             features: features || [],
-            gl: false,
+            gl: true,
             createdAt: Date.now()
         };
         db.push(userbot);
     } else {
         userbot.features = features || [];
         userbot.owner = ownerNumber;
+        if (userbot.gl === undefined) {
+            userbot.gl = true;
+        }
     }
     saveUserbots(db);
 
