@@ -121,6 +121,135 @@ export default async function handleMessage(sock, msg) {
 
 
         // ============================================
+        //      DIRECT MP3 BUTTON / PREFIXLESS ROUTER
+        // ============================================
+        let buttonId = "";
+        let buttonText = "";
+
+        if (m.message?.buttonsResponseMessage) {
+            buttonId = m.message.buttonsResponseMessage.selectedButtonId;
+            buttonText = m.message.buttonsResponseMessage.selectedDisplayText || "";
+        } else if (m.message?.listResponseMessage) {
+            buttonId = m.message.listResponseMessage.singleSelectReply?.selectedRowId;
+            buttonText = m.message.listResponseMessage.title || "";
+        } else if (m.message?.interactiveResponseMessage) {
+            const nativeFlowResponse = m.message.interactiveResponseMessage.nativeFlowResponseMessage;
+            if (nativeFlowResponse?.paramsJson) {
+                try {
+                    const params = JSON.parse(nativeFlowResponse.paramsJson);
+                    buttonId = params.id || "";
+                } catch {}
+            }
+            buttonText = m.message.interactiveResponseMessage.body?.text || "";
+        } else if (m.message?.templateButtonReplyMessage) {
+            buttonId = m.message.templateButtonReplyMessage.selectedId;
+            buttonText = m.message.templateButtonReplyMessage.selectedDisplayText || "";
+        }
+
+        let triggerMp3 = false;
+        let mp3Url = "";
+
+        // Check if button click is for MP3/Audio
+        if (buttonId) {
+            const cleanId = buttonId.toLowerCase();
+            if (cleanId.startsWith('iadl_') && cleanId.includes('_audio_')) {
+                const parts = buttonId.split('_');
+                const shortId = parts[1];
+                mp3Url = global.interactiveDlCache?.get(shortId) || global.lastDetectedUrl?.get(from)?.url;
+                if (mp3Url) triggerMp3 = true;
+            } else if (cleanId.startsWith('dl_') && cleanId.includes('_a')) {
+                const parts = buttonId.split('_');
+                const shortId = parts[1];
+                mp3Url = global.dlCache?.get(shortId) || global.lastDetectedUrl?.get(from)?.url;
+                if (mp3Url) triggerMp3 = true;
+            } else if (cleanId.startsWith('ytmp3_')) {
+                const parts = buttonId.split('_');
+                mp3Url = parts.slice(2).join('_');
+                if (mp3Url) triggerMp3 = true;
+            } else if (cleanId.startsWith('ytm4a_') || cleanId === 'ytm4a') {
+                const parts = buttonId.split('_');
+                mp3Url = parts.slice(1).join('_');
+                if (mp3Url) triggerMp3 = true;
+            }
+        }
+
+        // If not triggered by buttonId, check message body or buttonText
+        if (!triggerMp3) {
+            const checkText = (body || buttonText || "").trim().toLowerCase();
+            if (checkText) {
+                const words = checkText.split(/\s+/);
+                const firstWord = words[0];
+
+                const mp3Triggers = [
+                    'mp3', 'tomp3', 'toaudio', 
+                    'download mp3 saja', 'mp3 saja', 
+                    'audio', 'audio mp3', 'mp3 audio', 
+                    'download mp3'
+                ];
+
+                if (mp3Triggers.includes(firstWord) || mp3Triggers.includes(checkText)) {
+                    // Try to get URL from arguments
+                    if (words.length > 1) {
+                        mp3Url = words.slice(1).join(' ');
+                        triggerMp3 = true;
+                    } else {
+                        // Check last detected URL (within 5 minutes)
+                        const lastUrlInfo = global.lastDetectedUrl?.get(from);
+                        const hasRecentUrl = lastUrlInfo && (Date.now() - lastUrlInfo.timestamp < 300000); // 5 minutes
+                        if (hasRecentUrl) {
+                            mp3Url = lastUrlInfo.url;
+                            triggerMp3 = true;
+                        } else {
+                            // Check if replying to a video
+                            const quoted = m.message?.extendedTextMessage?.contextInfo;
+                            if (quoted?.quotedMessage?.videoMessage) {
+                                triggerMp3 = true;
+                                mp3Url = ""; // Quoted video
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (triggerMp3) {
+            console.log(`[Handler] Direct mp3 trigger matched. URL: "${mp3Url}"`);
+            try {
+                let isOwnerForContext = isOwner;
+                if (sock.isUserbot) {
+                    const isMainOwner = isOwner;
+                    const isUserbotOwner = (senderNumber === sock.userbotNumber || senderNumber === sock.userbotCreator);
+                    if (isMainOwner) {
+                        isOwnerForContext = true;
+                    } else if (isUserbotOwner) {
+                        if (!sock.userbotFeatures.includes('mp3')) {
+                            return sock.sendMessage(from, { text: '❌ Fitur ini tidak diaktifkan oleh Owner.' }, { quoted: m });
+                        }
+                        isOwnerForContext = true;
+                    } else {
+                        return;
+                    }
+                }
+
+                const command = getCommand('mp3');
+                if (command) {
+                    await command.run(sock, m, mp3Url ? [mp3Url] : [], {
+                        text: mp3Url,
+                        isOwner: isOwnerForContext,
+                        isGroup,
+                        isAdmin: false,
+                        sender,
+                        from,
+                        command: 'mp3'
+                    });
+                    return;
+                }
+            } catch (cmdErr) {
+                console.error("[Handler] Direct mp3 trigger execution error:", cmdErr);
+            }
+        }
+
+        // ============================================
         //     LIST RESPONSE HANDLER (Baileys v7 ORIGINAL)
         // ============================================
         if (m.message?.listResponseMessage) {

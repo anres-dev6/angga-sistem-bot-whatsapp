@@ -65,10 +65,12 @@ export default {
                 const isYouTube = /youtube\.com|youtu\.be/i.test(url);
                 const isTikTok = /tiktok\.com|vt\.tiktok|vm\.tiktok/i.test(url);
                 const isSpotify = /spotify\.com\/track/i.test(url);
+                const isInstagram = /instagram\.com/i.test(url);
+                const isFacebook = /facebook\.com|fb\.watch/i.test(url);
 
-                if (!isYouTube && !isTikTok && !isSpotify) {
+                if (!isYouTube && !isTikTok && !isSpotify && !isInstagram && !isFacebook) {
                     return sock.sendMessage(from, {
-                        text: "❌ Link tidak didukung!\n\nYang didukung:\n• Spotify\n• TikTok\n• YouTube\n• Reply video WhatsApp"
+                        text: "❌ Link tidak didukung!\n\nYang didukung:\n• Spotify\n• TikTok\n• YouTube\n• Instagram\n• Facebook\n• Reply video WhatsApp"
                     }, { quoted: msg });
                 }
 
@@ -175,7 +177,7 @@ export default {
                     }
                 }
                 // TikTok
-                if (isTikTok) {
+                else if (isTikTok) {
                     try {
                         // Import TikTok scraper
                         const { Tiktok } = await import('@tobyg74/tiktok-api-dl');
@@ -229,11 +231,29 @@ export default {
                         }, { quoted: msg });
                     }
                 }
-                // YouTube
-                else if (isYouTube) {
-                    await sock.sendMessage(from, { react: { text: '💡', key: msg.key } });
-                    return sock.sendMessage(from, {
-                        text: `📥 *Cara Download Audio YouTube:*
+                // YouTube, Instagram, Facebook
+                else if (isYouTube || isInstagram || isFacebook) {
+                    try {
+                        const { downloadYTDLPAudio } = await import('../../utils/ytdlp.js');
+                        const fs = await import('fs');
+
+                        const result = await downloadYTDLPAudio(url);
+
+                        await sock.sendMessage(from, {
+                            audio: fs.readFileSync(result.filePath),
+                            mimetype: 'audio/mpeg',
+                            fileName: `audio_${Date.now()}.mp3`,
+                            ptt: false
+                        }, { quoted: msg });
+
+                        await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+                        try { fs.unlinkSync(result.filePath); } catch {}
+                    } catch (error) {
+                        console.error('[MP3 Download] Error:', error.message);
+                        if (isYouTube) {
+                            await sock.sendMessage(from, { react: { text: '💡', key: msg.key } });
+                            return sock.sendMessage(from, {
+                                text: `📥 *Cara Download Audio YouTube:*
 
 API YouTube tidak stabil, gunakan cara ini:
 
@@ -249,7 +269,12 @@ API YouTube tidak stabil, gunakan cara ini:
 3. Reply dengan .mp3 ✅
 
 💡 Opsi 2 lebih mudah!`
-                    }, { quoted: msg });
+                            }, { quoted: msg });
+                        } else {
+                            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                            return sock.sendMessage(from, { text: `❌ Gagal mengunduh audio: ${error.message}` }, { quoted: msg });
+                        }
+                    }
                 }
             }
             // Case 3: No input

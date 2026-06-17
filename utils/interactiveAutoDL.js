@@ -472,6 +472,21 @@ export async function handleInteractiveResponse(sock, m) {
             return true;
         }
 
+        if (downloadType === 'audio') {
+            console.log('[Interactive AutoDL] Routing audio button click to mp3.js command');
+            const mp3Command = (await import('../commands/download/mp3.js')).default;
+            await mp3Command.run(sock, m, [url], {
+                text: url,
+                isOwner: false,
+                isGroup: from.endsWith('@g.us'),
+                isAdmin: false,
+                sender: m.key.participant || m.participant || from,
+                from: from,
+                command: 'mp3'
+            });
+            return true;
+        }
+
         await handleDirectDownloadAction(sock, from, url, downloadType, quality, m);
         return true;
     } catch (err) {

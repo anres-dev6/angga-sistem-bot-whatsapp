@@ -69,6 +69,7 @@ class AutoDLManager {
             return false;
         }
 
+        this.loadState();
         this.state[jid] = isActive;
         global.autodl = this.state;
 
@@ -85,6 +86,7 @@ class AutoDLManager {
      * @returns {boolean} Enabled status
      */
     isEnabled(jid) {
+        this.loadState();
         return !!this.state[jid];
     }
 
@@ -93,6 +95,7 @@ class AutoDLManager {
      * @returns {Array} List of enabled chat JIDs
      */
     getEnabledChats() {
+        this.loadState();
         return Object.keys(this.state).filter(jid => this.state[jid]);
     }
 
