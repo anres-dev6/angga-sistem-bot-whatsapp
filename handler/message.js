@@ -58,12 +58,12 @@ export default async function handleMessage(sock, msg) {
                 m.message?.extendedTextMessage?.text ||
                 ""
             ).trim();
-            const isCommand = tempBody.startsWith('.') || 
-                              !!m.message?.listResponseMessage || 
-                              !!m.message?.buttonsResponseMessage || 
-                              !!m.message?.interactiveResponseMessage ||
-                              !!m.message?.templateButtonReplyMessage;
-            if (!sock.isUserbot || !isCommand) {
+            const isButtonResponse = !!m.message?.listResponseMessage || 
+                                     !!m.message?.buttonsResponseMessage || 
+                                     !!m.message?.interactiveResponseMessage ||
+                                     !!m.message?.templateButtonReplyMessage;
+            const isCommand = tempBody.startsWith('.') || isButtonResponse;
+            if (!isCommand || (!sock.isUserbot && !isButtonResponse && tempBody.startsWith('.'))) {
                 console.log('[Handler] ⏭️ Skipping - message from bot itself (fromMe)');
                 return;
             }
@@ -272,6 +272,51 @@ export default async function handleMessage(sock, msg) {
             }
         } catch (err) {
             console.error('[Handler] Confess forwarding router error:', err);
+        }
+
+        // ============================================
+        //  Prefixless AutoDL Option Checker
+        // ============================================
+        if (!body.startsWith('.') && body.trim()) {
+            const cleanBody = body.trim().toLowerCase();
+            if (!global.lastDetectedUrl) {
+                global.lastDetectedUrl = new Map();
+            }
+            const lastUrlInfo = global.lastDetectedUrl.get(from);
+            const hasRecentUrl = lastUrlInfo && (Date.now() - lastUrlInfo.timestamp < 300000); // 5 minutes
+
+            if (hasRecentUrl) {
+                let downloadType = null;
+                let quality = null;
+
+                if (cleanBody === 'download mp3 saja' || cleanBody === 'mp3 saja' || cleanBody === 'mp3' || cleanBody === 'audio' || cleanBody === 'audio mp3' || cleanBody === 'mp3 audio' || cleanBody === 'download mp3') {
+                    downloadType = 'audio';
+                    quality = '128';
+                } else if (cleanBody === '360p' || cleanBody === '360' || cleanBody.includes('360')) {
+                    downloadType = 'video';
+                    quality = '360';
+                } else if (cleanBody === '480p' || cleanBody === '480' || cleanBody.includes('480')) {
+                    downloadType = 'video';
+                    quality = '480';
+                } else if (cleanBody === '720p' || cleanBody === '720' || cleanBody.includes('720')) {
+                    downloadType = 'video';
+                    quality = '720';
+                } else if (cleanBody === '1080p' || cleanBody === '1080' || cleanBody.includes('1080')) {
+                    downloadType = 'video';
+                    quality = '1080';
+                }
+
+                if (downloadType) {
+                    console.log(`[Interactive AutoDL] Matched plain text "${body}" to recent URL:`, lastUrlInfo.url);
+                    try {
+                        const { handleDirectDownloadAction } = await import('../utils/interactiveAutoDL.js');
+                        await handleDirectDownloadAction(sock, from, lastUrlInfo.url, downloadType, quality, m);
+                        return; // Halt processing
+                    } catch (err) {
+                        console.error('[Interactive AutoDL] Plain text download action error:', err);
+                    }
+                }
+            }
         }
 
         // ============================================
@@ -1788,11 +1833,16 @@ export default async function handleMessage(sock, msg) {
                     
                     if (targetPlatforms.includes(urlInfo.platform)) {
                         try {
-                            const { sendInteractiveButtons } = await import('../utils/interactiveAutoDL.js');
-                            await sendInteractiveButtons(sock, from, urlInfo.url, urlInfo.platform);
+                            if (urlInfo.platform === 'youtube') {
+                                const { sendInteractiveButtons } = await import('../utils/interactiveAutoDL.js');
+                                await sendInteractiveButtons(sock, from, urlInfo.url, urlInfo.platform);
+                            } else {
+                                const { handleDirectDownloadAndButtons } = await import('../utils/interactiveAutoDL.js');
+                                await handleDirectDownloadAndButtons(sock, from, urlInfo.url, urlInfo.platform, m);
+                            }
                             return; // Menghentikan proses agar tidak langsung mendownload secara otomatis
                         } catch (err) {
-                            console.error('[Interactive AutoDL] Gagal mengirim tombol interaktif:', err);
+                            console.error('[Interactive AutoDL] Gagal memproses AutoDL link:', err);
                         }
                     }
                 }

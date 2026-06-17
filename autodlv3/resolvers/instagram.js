@@ -73,14 +73,28 @@ export default async function instagram(url, ctx) {
                     return {
                         type: 'image-slide',
                         images: mediaUrls,
-                        private: false
+                        private: false,
+                        metadata: {
+                            caption: result.caption || result.title || '',
+                            author: result.owner?.username || result.author?.username || '',
+                            views: result.view_count || 0,
+                            likes: result.like_count || 0,
+                            shares: result.share_count || 0
+                        }
                     };
                 } else if (mediaUrls.length === 1) {
                     const downloadUrl = mediaUrls[0];
                     return {
                         type: 'video',
                         url: downloadUrl,
-                        filename: `ig_${Date.now()}.${downloadUrl.includes('.jpg') || downloadUrl.includes('.png') ? 'jpg' : 'mp4'}`
+                        filename: `ig_${Date.now()}.${downloadUrl.includes('.jpg') || downloadUrl.includes('.png') ? 'jpg' : 'mp4'}`,
+                        metadata: {
+                            caption: result.caption || result.title || '',
+                            author: result.owner?.username || result.author?.username || '',
+                            views: result.view_count || 0,
+                            likes: result.like_count || 0,
+                            shares: result.share_count || 0
+                        }
                     };
                 }
             }

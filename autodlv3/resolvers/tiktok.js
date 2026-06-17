@@ -42,7 +42,14 @@ export default async function tiktok(url) {
                         type: 'image-slide',
                         images: res.images,
                         private: true,
-                        filename: `tiktok_slide_${vidId}`
+                        filename: `tiktok_slide_${vidId}`,
+                        metadata: {
+                            caption: res.title || '',
+                            author: res.author || '',
+                            views: res.views || 0,
+                            likes: res.likes || 0,
+                            shares: res.shares || 0
+                        }
                     };
                 }
                 const downloadUrl = res.video || res.nowm || res.url;
@@ -50,7 +57,14 @@ export default async function tiktok(url) {
                     return {
                         type: 'video',
                         url: downloadUrl,
-                        filename: `tiktok_${vidId}.mp4`
+                        filename: `tiktok_${vidId}.mp4`,
+                        metadata: {
+                            caption: res.title || '',
+                            author: res.author || '',
+                            views: res.views || 0,
+                            likes: res.likes || 0,
+                            shares: res.shares || 0
+                        }
                     };
                 }
             }
@@ -79,7 +93,14 @@ export default async function tiktok(url) {
                     type: 'image-slide',
                     images: data.images,
                     private: true,
-                    filename: `tiktok_slide_${data.id}`
+                    filename: `tiktok_slide_${data.id}`,
+                    metadata: {
+                        caption: data.title || '',
+                        author: data.author ? `${data.author.nickname} (@${data.author.unique_id})` : '',
+                        views: data.play_count || 0,
+                        likes: data.digg_count || 0,
+                        shares: data.share_count || 0
+                    }
                 };
             }
 
@@ -89,7 +110,14 @@ export default async function tiktok(url) {
                 return {
                     type: 'video',
                     url: videoUrl.startsWith('http') ? videoUrl : `https://www.tikwm.com${videoUrl}`,
-                    filename: `tiktok_${data.id || vidId}.mp4`
+                    filename: `tiktok_${data.id || vidId}.mp4`,
+                    metadata: {
+                        caption: data.title || '',
+                        author: data.author ? `${data.author.nickname} (@${data.author.unique_id})` : '',
+                        views: data.play_count || 0,
+                        likes: data.digg_count || 0,
+                        shares: data.share_count || 0
+                    }
                 };
             }
         }
@@ -120,7 +148,14 @@ export default async function tiktok(url) {
                             return {
                                 type: 'image-slide',
                                 private: true,
-                                images: item.image_post_info.images.map(v => v.display_image.url_list[0])
+                                images: item.image_post_info.images.map(v => v.display_image.url_list[0]),
+                                metadata: {
+                                    caption: item.desc || '',
+                                    author: item.author ? `${item.author.nickname} (@${item.author.unique_id})` : '',
+                                    views: item.statistics?.play_count || 0,
+                                    likes: item.statistics?.digg_count || 0,
+                                    shares: item.statistics?.share_count || 0
+                                }
                             };
                         }
 
@@ -129,7 +164,14 @@ export default async function tiktok(url) {
                             return {
                                 type: 'video',
                                 url: videoUrl,
-                                filename: `tiktok_${aweme_id}.mp4`
+                                filename: `tiktok_${aweme_id}.mp4`,
+                                metadata: {
+                                    caption: item.desc || '',
+                                    author: item.author ? `${item.author.nickname} (@${item.author.unique_id})` : '',
+                                    views: item.statistics?.play_count || 0,
+                                    likes: item.statistics?.digg_count || 0,
+                                    shares: item.statistics?.share_count || 0
+                                }
                             };
                         }
                     }
@@ -151,7 +193,14 @@ export default async function tiktok(url) {
             type: 'video',
             buffer,
             url: null,
-            filename: `tiktok_${vidId}.mp4`
+            filename: `tiktok_${vidId}.mp4`,
+            metadata: {
+                caption: 'TikTok Video',
+                author: 'Unknown',
+                views: 0,
+                likes: 0,
+                shares: 0
+            }
         };
     } catch (e) {
         console.warn('[TikTok] yt-dlp fallback failed:', e.message);

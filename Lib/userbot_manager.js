@@ -722,7 +722,9 @@ export async function initUserbots(mainSock) {
     let count = 0;
 
     for (const userbot of userbots) {
-        if (userbot.paired) {
+        const sessionDir = `./sessions/${userbot.number}`;
+        const hasSession = fs.existsSync(path.join(sessionDir, 'creds.json'));
+        if (userbot.paired || hasSession) {
             try {
                 await startUserbotConnection(userbot, mainSock);
                 count++;

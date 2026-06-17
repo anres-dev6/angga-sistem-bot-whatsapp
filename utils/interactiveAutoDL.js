@@ -10,6 +10,21 @@ if (!global.interactiveDlCache) {
     global.interactiveDlCache = new Map();
 }
 
+if (!global.lastDetectedUrl) {
+    global.lastDetectedUrl = new Map();
+}
+
+/**
+ * Format numbers with local Indonesian formatting
+ * @param {number|string} num - Number to format
+ * @returns {string} Formatted number
+ */
+function formatNumber(num) {
+    if (num === undefined || num === null || num === 0) return '0';
+    if (typeof num === 'string') return num;
+    return num.toLocaleString('id-ID');
+}
+
 /**
  * Membuat ID pendek acak dan unik untuk menyimpan URL asli di Map
  * @param {string} url - URL asli yang akan diunduh
@@ -36,10 +51,18 @@ export async function sendInteractiveButtons(sock, jid, url, platform) {
     const shortId = getShortId(url);
     const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
     
+    // Simpan ke lastDetectedUrl map
+    global.lastDetectedUrl.set(jid, {
+        url: url,
+        platform: platform,
+        shortId: shortId,
+        timestamp: Date.now()
+    });
+
     let buttons = [];
     let text = "";
 
-    // 1. Jika platform TikTok, Instagram, atau Facebook
+    // 1. Jika platform TikTok, Instagram, atau Facebook (Sebagai cadangan jika dipanggil langsung)
     if (['tiktok', 'instagram', 'facebook'].includes(platform)) {
         text = `📸 *${platformName} Downloader*\n\nTerdeteksi tautan *${platformName}*.\nSilakan tekan tombol di bawah ini untuk mendownload MP3 saja.`;
         buttons = [
@@ -80,6 +103,13 @@ export async function sendInteractiveButtons(sock, jid, url, platform) {
             {
                 name: "quick_reply",
                 buttonParamsJson: JSON.stringify({
+                    display_text: "🎥 Video 1080p",
+                    id: `iadl_${shortId}_video_1080`
+                })
+            },
+            {
+                name: "quick_reply",
+                buttonParamsJson: JSON.stringify({
                     display_text: "🎵 Audio MP3",
                     id: `iadl_${shortId}_audio_128`
                 })
@@ -111,6 +141,296 @@ export async function sendInteractiveButtons(sock, jid, url, platform) {
         messageId: msg.key.id
     });
     console.log(`[Interactive AutoDL] Tombol dikirim untuk platform: ${platform}, ShortID: ${shortId}`);
+}
+
+/**
+ * Mengirimkan tombol MP3 saja di bawah video
+ */
+export async function sendMp3ButtonOnly(sock, jid, shortId, platform) {
+    const text = `🎵 *Audio Options*\n\nIngin mendownload format MP3/Audio untuk media di atas? Silakan tekan tombol di bawah.`;
+    const buttons = [
+        {
+            name: "quick_reply",
+            buttonParamsJson: JSON.stringify({
+                display_text: "🎵 Download MP3 saja",
+                id: `iadl_${shortId}_audio_128`
+            })
+        }
+    ];
+
+    const msg = generateWAMessageFromContent(jid, {
+        viewOnceMessage: {
+            message: {
+                interactiveMessage: {
+                    body: {
+                        text: text
+                    },
+                    footer: {
+                        text: "Interactive Auto Downloader"
+                    },
+                    nativeFlowMessage: {
+                        buttons: buttons
+                    }
+                }
+            }
+        }
+    }, {});
+
+    await sock.relayMessage(jid, msg.message, {
+        messageId: msg.key.id
+    });
+}
+
+/**
+ * Mengunduh video tiktok, ig, fb langsung tanpa watermark, mengirimnya dengan caption metadata,
+ * lalu memberikan tombol download MP3/audio.
+ */
+export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m) {
+    const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
+    
+    // 1. Kirim status awal download
+    const progressMsg = await sock.sendMessage(jid, {
+        text: `⏳ *AutoDL - Downloading ${platformName} media...*\n_Mohon tunggu sebentar..._`
+    }, { quoted: m });
+
+    try {
+        // 2. Resolve link menggunakan universalEngine AutoDL V3
+        const { universalEngine } = await import('../autodlv3/engine/index.js');
+        const result = await universalEngine(url, { m });
+
+        if (!result) {
+            throw new Error("Gagal memproses URL");
+        }
+
+        const shortId = getShortId(url);
+        // Simpan url yang terdeteksi untuk pencarian perintah teks non-prefix
+        global.lastDetectedUrl.set(jid, {
+            url: url,
+            platform: platform,
+            shortId: shortId,
+            timestamp: Date.now()
+        });
+
+        // 3. Jika berupa slide gambar (misal TikTok foto)
+        if (result.type === 'image-slide') {
+            await sock.sendMessage(jid, {
+                text: `✅ Terdeteksi ${result.images.length} foto/slide. Mengirim ke chat...`,
+                edit: progressMsg.key
+            });
+
+            const isGroup = jid.endsWith('@g.us');
+            const sender = isGroup ? (m.key.participant || m.participant) : jid;
+            const target = sock.isUserbot ? sender : jid;
+
+            for (let i = 0; i < result.images.length; i++) {
+                const img = result.images[i];
+                const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
+                await sock.sendMessage(target, {
+                    image: imagePayload,
+                    caption: `Slide ${i + 1}/${result.images.length}`
+                });
+            }
+
+            // Kirim tombol MP3
+            await sendMp3ButtonOnly(sock, jid, shortId, platform);
+            
+            // Hapus pesan progress
+            try {
+                await sock.sendMessage(jid, { delete: progressMsg.key });
+            } catch {}
+            return;
+        }
+
+        // 4. Jika berupa video
+        if (result.type === 'video') {
+            let buffer;
+            if (result.buffer) {
+                buffer = result.buffer;
+            } else if (result.url) {
+                const { downloadWithProgress } = await import('../autodlv3/engine/progress.js');
+                buffer = await downloadWithProgress(result.url, () => {});
+            } else {
+                throw new Error("Format video tidak dikenal");
+            }
+
+            // Simpan buffer ke folder temp sementara
+            const tempDir = path.join(process.cwd(), 'temp');
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+            }
+            const outputPath = path.join(tempDir, `autodl_${Date.now()}.mp4`);
+            fs.writeFileSync(outputPath, buffer);
+
+            let stats = fs.statSync(outputPath);
+            let fileSizeMB = stats.size / (1024 * 1024);
+
+            // Kompres otomatis jika > 25MB
+            if (fileSizeMB > 25) {
+                await sock.sendMessage(jid, {
+                    text: `📦 *Mengompres video (${fileSizeMB.toFixed(2)}MB)...*`,
+                    edit: progressMsg.key
+                });
+                const compressResult = await autoCompress(outputPath, 25, 'video');
+                if (compressResult.compressed) {
+                    buffer = fs.readFileSync(outputPath);
+                    fileSizeMB = compressResult.newSize;
+                }
+            }
+
+            if (fileSizeMB > 100) {
+                if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+                throw new Error("Ukuran video melebihi batas pengiriman WhatsApp (100MB).");
+            }
+
+            // Susun caption lengkap dengan metadata
+            const meta = result.metadata || {};
+            let captionText = `✅ *Download Berhasil!*\n\n`;
+            if (meta.caption) captionText += `📝 *Caption:* ${meta.caption.trim()}\n`;
+            if (meta.author) captionText += `👤 *Akun:* ${meta.author}\n`;
+            if (meta.views) captionText += `👁️ *Views:* ${formatNumber(meta.views)}\n`;
+            if (meta.likes) captionText += `❤️ *Likes:* ${formatNumber(meta.likes)}\n`;
+            if (meta.shares) captionText += `🔄 *Shares:* ${formatNumber(meta.shares)}\n`;
+            
+            captionText += `📦 *Size:* ${fileSizeMB.toFixed(2)} MB`;
+
+            // Kirim media video ke pengguna
+            await sock.sendMessage(jid, {
+                video: buffer,
+                caption: captionText,
+                mimetype: 'video/mp4'
+            });
+
+            if (fs.existsSync(outputPath)) {
+                fs.unlinkSync(outputPath);
+            }
+
+            // Kirim tombol MP3 di bawah video
+            await sendMp3ButtonOnly(sock, jid, shortId, platform);
+
+            // Hapus pesan progress
+            try {
+                await sock.sendMessage(jid, { delete: progressMsg.key });
+            } catch {}
+        }
+    } catch (err) {
+        console.error('[Interactive AutoDL] Direct Download Error:', err);
+        await sock.sendMessage(jid, {
+            text: `❌ *Gagal download media!*\n\n⚠️ ${err.message}`,
+            edit: progressMsg.key
+        });
+    }
+}
+
+/**
+ * Fungsi pembantu yang melakukan esekusi pengunduhan media
+ */
+export async function handleDirectDownloadAction(sock, from, url, downloadType, quality, m) {
+    // Kirim status awal download
+    const progressMsg = await sock.sendMessage(from, {
+        text: `⏳ *Sedang mengunduh ${downloadType === 'video' ? 'Video (' + quality + 'p)' : 'Audio (MP3)'}...*\n_Mohon tunggu sebentar, file sedang diproses..._`
+    });
+
+    // Buat folder temp jika belum ada
+    const tempDir = path.join(process.cwd(), 'temp');
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const ext = downloadType === 'video' ? 'mp4' : 'mp3';
+    const outputPath = path.join(tempDir, `iadl_${Date.now()}.${ext}`);
+
+    try {
+        if (downloadType === 'video') {
+            // Konfigurasi format resolusi yt-dlp
+            const formatSelector = `bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]`;
+            await downloadVideo(url, formatSelector, outputPath);
+
+            // Cek ukuran file hasil unduhan
+            let stats = fs.statSync(outputPath);
+            let fileSizeMB = stats.size / (1024 * 1024);
+
+            // Auto compress jika ukuran file melebihi 25MB
+            if (fileSizeMB > 25) {
+                await sock.sendMessage(from, {
+                    text: `📦 *Mengompres video (${fileSizeMB.toFixed(2)}MB)...*`,
+                    edit: progressMsg.key
+                });
+                const compressResult = await autoCompress(outputPath, 25, 'video');
+                if (compressResult.compressed) {
+                    fileSizeMB = compressResult.newSize;
+                }
+            }
+
+            // Batasan maksimum pengiriman file WhatsApp (100MB)
+            if (fileSizeMB > 100) {
+                if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+                await sock.sendMessage(from, {
+                    text: '❌ File terlalu besar (>100MB)! Silakan pilih kualitas video yang lebih rendah.',
+                    edit: progressMsg.key
+                });
+                return;
+            }
+
+            // Kirim media video ke pengguna
+            await sock.sendMessage(from, {
+                video: fs.readFileSync(outputPath),
+                caption: `✅ *Download Berhasil!*\n\n📺 Kualitas: ${quality}p\n📦 Ukuran: ${fileSizeMB.toFixed(2)}MB`,
+                mimetype: 'video/mp4'
+            });
+
+        } else {
+            // Download Audio (MP3)
+            const mp3Path = await downloadAudio(url, quality, outputPath);
+
+            // Cek ukuran file audio
+            let stats = fs.statSync(mp3Path);
+            let fileSizeMB = stats.size / (1024 * 1024);
+
+            // Auto compress jika ukuran file audio melebihi 25MB
+            if (fileSizeMB > 25) {
+                await sock.sendMessage(from, {
+                    text: `📦 *Mengompres audio (${fileSizeMB.toFixed(2)}MB)...*`,
+                    edit: progressMsg.key
+                });
+                const compressResult = await autoCompress(mp3Path, 25, 'audio');
+                if (compressResult.compressed) {
+                    fileSizeMB = compressResult.newSize;
+                }
+            }
+
+            // Kirim media audio ke pengguna
+            await sock.sendMessage(from, {
+                audio: fs.readFileSync(mp3Path),
+                mimetype: 'audio/mpeg',
+                fileName: `audio_${Date.now()}.mp3`
+            });
+
+            if (fs.existsSync(mp3Path)) {
+                fs.unlinkSync(mp3Path);
+            }
+        }
+
+        // Hapus file sementara dari disk setelah terkirim
+        if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(outputPath);
+        }
+
+        // Update pesan status menjadi sukses
+        await sock.sendMessage(from, {
+            text: '✅ *Proses download selesai!*',
+            edit: progressMsg.key
+        });
+
+    } catch (downloadErr) {
+        console.error('[Interactive AutoDL] Error saat mengunduh:', downloadErr);
+        await sock.sendMessage(from, {
+            text: `❌ *Gagal mendownload media!*\n\n⚠️ Error: ${downloadErr.message}`,
+            edit: progressMsg.key
+        });
+        if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(outputPath);
+        }
+    }
 }
 
 /**
@@ -146,118 +466,17 @@ export async function handleInteractiveResponse(sock, m) {
         const quality = parts[3];      // '360', '480', '720', atau '128'
 
         // Mengambil URL asli dari penyimpanan Map
-        const url = global.interactiveDlCache.get(shortId);
+        const url = global.interactiveDlCache.get(shortId) || global.lastDetectedUrl.get(from)?.url;
         if (!url) {
             await sock.sendMessage(from, { text: "❌ Tautan download sudah kedaluwarsa. Silakan kirim ulang tautan Anda." });
             return true;
         }
 
-        // Kirim status awal download
-        const progressMsg = await sock.sendMessage(from, {
-            text: `⏳ *Sedang mengunduh ${downloadType === 'video' ? 'Video (' + quality + 'p)' : 'Audio (MP3)'}...*\n_Mohon tunggu sebentar, file sedang diproses..._`
-        });
-
-        // Buat folder temp jika belum ada
-        const tempDir = path.join(process.cwd(), 'temp');
-        if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-        }
-
-        const ext = downloadType === 'video' ? 'mp4' : 'mp3';
-        const outputPath = path.join(tempDir, `iadl_${Date.now()}.${ext}`);
-
-        try {
-            if (downloadType === 'video') {
-                // Konfigurasi format resolusi yt-dlp
-                const formatSelector = `bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]`;
-                await downloadVideo(url, formatSelector, outputPath);
-
-                // Cek ukuran file hasil unduhan
-                let stats = fs.statSync(outputPath);
-                let fileSizeMB = stats.size / (1024 * 1024);
-
-                // Auto compress jika ukuran file melebihi 25MB
-                if (fileSizeMB > 25) {
-                    await sock.sendMessage(from, {
-                        text: `📦 *Mengompres video (${fileSizeMB.toFixed(2)}MB)...*`,
-                        edit: progressMsg.key
-                    });
-                    const compressResult = await autoCompress(outputPath, 25, 'video');
-                    if (compressResult.compressed) {
-                        fileSizeMB = compressResult.newSize;
-                    }
-                }
-
-                // Batasan maksimum pengiriman file WhatsApp (100MB)
-                if (fileSizeMB > 100) {
-                    fs.unlinkSync(outputPath);
-                    await sock.sendMessage(from, {
-                        text: '❌ File terlalu besar (>100MB)! Silakan pilih kualitas video yang lebih rendah.',
-                        edit: progressMsg.key
-                    });
-                    return true;
-                }
-
-                // Kirim media video ke pengguna
-                await sock.sendMessage(from, {
-                    video: fs.readFileSync(outputPath),
-                    caption: `✅ *Download Berhasil!*\n\n📺 Kualitas: ${quality}p\n📦 Ukuran: ${fileSizeMB.toFixed(2)}MB`,
-                    mimetype: 'video/mp4'
-                });
-
-            } else {
-                // Download Audio (MP3)
-                await downloadAudio(url, quality, outputPath);
-
-                // Cek ukuran file audio
-                let stats = fs.statSync(outputPath);
-                let fileSizeMB = stats.size / (1024 * 1024);
-
-                // Auto compress jika ukuran file audio melebihi 25MB
-                if (fileSizeMB > 25) {
-                    await sock.sendMessage(from, {
-                        text: `📦 *Mengompres audio (${fileSizeMB.toFixed(2)}MB)...*`,
-                        edit: progressMsg.key
-                    });
-                    const compressResult = await autoCompress(outputPath, 25, 'audio');
-                    if (compressResult.compressed) {
-                        fileSizeMB = compressResult.newSize;
-                    }
-                }
-
-                // Kirim media audio ke pengguna
-                await sock.sendMessage(from, {
-                    audio: fs.readFileSync(outputPath),
-                    mimetype: 'audio/mpeg',
-                    fileName: `audio_${Date.now()}.mp3`
-                });
-            }
-
-            // Hapus file sementara dari disk setelah terkirim
-            if (fs.existsSync(outputPath)) {
-                fs.unlinkSync(outputPath);
-            }
-
-            // Update pesan status menjadi sukses
-            await sock.sendMessage(from, {
-                text: '✅ *Proses download selesai!*',
-                edit: progressMsg.key
-            });
-
-        } catch (downloadErr) {
-            console.error('[Interactive AutoDL] Error saat mengunduh:', downloadErr);
-            await sock.sendMessage(from, {
-                text: `❌ *Gagal mendownload media!*\n\n⚠️ Error: ${downloadErr.message}`,
-                edit: progressMsg.key
-            });
-            if (fs.existsSync(outputPath)) {
-                fs.unlinkSync(outputPath);
-            }
-        }
-
+        await handleDirectDownloadAction(sock, from, url, downloadType, quality, m);
         return true;
     } catch (err) {
         console.error('[Interactive AutoDL] Gagal mengolah respon interaktif:', err);
         return false;
     }
 }
+
