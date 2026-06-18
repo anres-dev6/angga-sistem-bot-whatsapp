@@ -79,6 +79,18 @@ export async function getAvailableFormats(url) {
     }
 }
 
+let ffmpegCache = null;
+async function checkFfmpegAvailable() {
+    if (ffmpegCache !== null) return ffmpegCache;
+    try {
+        await execAsync('ffmpeg -version');
+        ffmpegCache = true;
+    } catch (e) {
+        ffmpegCache = false;
+    }
+    return ffmpegCache;
+}
+
 /**
  * Download video with specific format
  * @param {string} url - Video URL
@@ -88,10 +100,30 @@ export async function getAvailableFormats(url) {
  */
 export async function downloadVideo(url, formatId, outputPath) {
     try {
-        // Use format with best audio
         const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
         const safeOutputPath = outputPath.replace(/\\/g, '/');
-        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -f "${formatId}+bestaudio/best" --merge-output-format mp4 -o "${safeOutputPath}" "${url}"`;
+        
+        let finalFormat = formatId;
+        const hasFfmpeg = await checkFfmpegAvailable();
+        
+        if (!hasFfmpeg) {
+            console.warn('[YT-DLP] ffmpeg is not available! Falling back to pre-merged video format.');
+            const match = formatId.match(/height<=?(\d+)/);
+            if (match) {
+                const height = match[1];
+                finalFormat = `best[height<=${height}]/best`;
+            } else {
+                finalFormat = 'best';
+            }
+        } else {
+            // ffmpeg is available.
+            // If formatId already specifies audio merge (contains '+') or is a complex selector (contains '/'), use it as is.
+            if (!formatId.includes('+') && !formatId.includes('/') && !formatId.includes('best')) {
+                finalFormat = `${formatId}+bestaudio/best`;
+            }
+        }
+
+        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -f "${finalFormat}" --merge-output-format mp4 -o "${safeOutputPath}" "${url}"`;
         console.log('[YT-DLP] Downloading video:', cmd);
 
         await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
@@ -110,20 +142,49 @@ export async function downloadVideo(url, formatId, outputPath) {
  * @returns {Promise<string>} Downloaded file path
  */
 export async function downloadAudio(url, quality = '192', outputPath) {
+    const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
+    const safeOutputPath = outputPath.replace(/\\/g, '/');
+    
+    const hasFfmpeg = await checkFfmpegAvailable();
+    if (hasFfmpeg) {
+        try {
+            const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -x --audio-format mp3 --audio-quality ${quality}K -o "${safeOutputPath}" "${url}"`;
+            console.log('[YT-DLP] Downloading audio (MP3 conversion):', cmd);
+
+            await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
+
+            const mp3Path = outputPath.replace(/\.[^.]+$/, '.mp3');
+            if (fs.existsSync(mp3Path)) {
+                return mp3Path;
+            }
+            if (fs.existsSync(outputPath)) {
+                return outputPath;
+            }
+        } catch (error) {
+            console.warn('[YT-DLP] MP3 conversion download failed, trying direct audio stream fallback:', error.message);
+        }
+    } else {
+        console.warn('[YT-DLP] ffmpeg is not available! Downloading direct audio stream without conversion.');
+    }
+
     try {
-        const ytdlpCmd = getYtdlpPath().replace(/\\/g, '/');
-        const safeOutputPath = outputPath.replace(/\\/g, '/');
-        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -x --audio-format mp3 --audio-quality ${quality}K -o "${safeOutputPath}" "${url}"`;
-        console.log('[YT-DLP] Downloading audio:', cmd);
+        const templatePath = outputPath.replace(/\.[^.]+$/, '.%(ext)s');
+        const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -f bestaudio/best -o "${templatePath}" "${url}"`;
+        console.log('[YT-DLP] Downloading direct audio stream:', cmd);
 
         await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
 
-        // yt-dlp adds .mp3 extension
-        const mp3Path = outputPath.replace(/\.[^.]+$/, '.mp3');
-        return mp3Path;
+        const baseDir = path.dirname(outputPath);
+        const baseName = path.basename(outputPath, path.extname(outputPath));
+        const files = fs.readdirSync(baseDir);
+        const match = files.find(f => f.startsWith(baseName));
+        if (match) {
+            return path.join(baseDir, match);
+        }
+        throw new Error('Audio file not found after download');
     } catch (error) {
-        console.error('[YT-DLP] Error downloading audio:', error);
-        throw new Error('Failed to download audio');
+        console.error('[YT-DLP] Direct audio download failed:', error);
+        throw new Error('Failed to download audio from YouTube');
     }
 }
 

@@ -304,10 +304,17 @@ export default {
 
                         const result = await downloadYTDLPAudio(url);
 
+                        let mimetype = 'audio/mpeg';
+                        if (result.filePath.endsWith('.m4a')) {
+                            mimetype = 'audio/mp4';
+                        } else if (result.filePath.endsWith('.ogg') || result.filePath.endsWith('.opus') || result.filePath.endsWith('.webm')) {
+                            mimetype = 'audio/ogg';
+                        }
+
                         await sock.sendMessage(from, {
                             audio: fs.readFileSync(result.filePath),
-                            mimetype: 'audio/mpeg',
-                            fileName: `audio_${Date.now()}.mp3`,
+                            mimetype: mimetype,
+                            fileName: `audio_${Date.now()}${path.extname(result.filePath)}`,
                             ptt: false
                         }, { quoted: quoteMsg });
 
@@ -315,30 +322,8 @@ export default {
                         try { fs.unlinkSync(result.filePath); } catch {}
                     } catch (error) {
                         console.error('[MP3 Download] Error:', error.message);
-                        if (isYouTube) {
-                            await safeReact('💡');
-                            return sock.sendMessage(from, {
-                                text: `📥 *Cara Download Audio YouTube:*
-
-API YouTube tidak stabil, gunakan cara ini:
-
-*Opsi 1 - Website:*
-1. Buka: https://y2mate.com
-2. Paste link: ${url}
-3. Download MP3
-4. Kirim ke bot ✅
-
-*Opsi 2 - Download Video:*
-1. Download video YouTube
-2. Kirim ke bot
-3. Reply dengan .mp3 ✅
-
-💡 Opsi 2 lebih mudah!`
-                            }, { quoted: quoteMsg });
-                        } else {
-                            await safeReact('❌');
-                            return sock.sendMessage(from, { text: `❌ Gagal mengunduh audio: ${error.message}` }, { quoted: quoteMsg });
-                        }
+                        await safeReact('❌');
+                        return sock.sendMessage(from, { text: `❌ Gagal mengunduh/memproses audio: ${error.message}` }, { quoted: quoteMsg });
                     }
                 }
             }

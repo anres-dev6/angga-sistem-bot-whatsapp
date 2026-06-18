@@ -837,9 +837,9 @@ export default async function handleMessage(sock, msg) {
                                     fs.mkdirSync(tempDir, { recursive: true });
                                 }
 
-                                await downloadAudio(url, quality, outputPath);
+                                const finalAudioPath = await downloadAudio(url, quality, outputPath);
 
-                                let stats = fs.statSync(outputPath);
+                                let stats = fs.statSync(finalAudioPath);
                                 let fileSizeMB = stats.size / (1024 * 1024);
 
                                 // Auto compress if > 25MB
@@ -849,19 +849,31 @@ export default async function handleMessage(sock, msg) {
                                         edit: progressMsg.key
                                     });
 
-                                    const compressResult = await autoCompress(outputPath, 25, 'audio');
+                                    const compressResult = await autoCompress(finalAudioPath, 25, 'audio');
                                     if (compressResult.compressed) {
                                         fileSizeMB = compressResult.newSize;
                                     }
                                 }
 
+                                let mimetype = 'audio/mpeg';
+                                if (finalAudioPath.endsWith('.m4a')) {
+                                    mimetype = 'audio/mp4';
+                                } else if (finalAudioPath.endsWith('.ogg') || finalAudioPath.endsWith('.opus') || finalAudioPath.endsWith('.webm')) {
+                                    mimetype = 'audio/ogg';
+                                }
+
                                 await sock.sendMessage(from, {
-                                    audio: fs.readFileSync(outputPath),
-                                    mimetype: 'audio/mpeg',
-                                    fileName: 'audio.mp3'
+                                    audio: fs.readFileSync(finalAudioPath),
+                                    mimetype: mimetype,
+                                    fileName: `audio_${Date.now()}${path.extname(finalAudioPath)}`
                                 });
 
-                                fs.unlinkSync(outputPath);
+                                if (fs.existsSync(finalAudioPath)) {
+                                    fs.unlinkSync(finalAudioPath);
+                                }
+                                if (fs.existsSync(outputPath) && outputPath !== finalAudioPath) {
+                                    try { fs.unlinkSync(outputPath); } catch {}
+                                }
 
                                 await sock.sendMessage(from, {
                                     text: `✅ *Selesai!*\n\n📦 ${fileSizeMB.toFixed(2)}MB`,

@@ -420,10 +420,17 @@ export async function handleDirectDownloadAction(sock, from, url, downloadType, 
             }
 
             // Kirim media audio ke pengguna
+            let mimetype = 'audio/mpeg';
+            if (mp3Path.endsWith('.m4a')) {
+                mimetype = 'audio/mp4';
+            } else if (mp3Path.endsWith('.ogg') || mp3Path.endsWith('.opus') || mp3Path.endsWith('.webm')) {
+                mimetype = 'audio/ogg';
+            }
+
             await sock.sendMessage(from, {
                 audio: fs.readFileSync(mp3Path),
-                mimetype: 'audio/mpeg',
-                fileName: `audio_${Date.now()}.mp3`
+                mimetype: mimetype,
+                fileName: `audio_${Date.now()}${path.extname(mp3Path)}`
             });
 
             if (fs.existsSync(mp3Path)) {
