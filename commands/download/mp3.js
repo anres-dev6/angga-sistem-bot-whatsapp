@@ -1,5 +1,7 @@
 import { downloadMediaMessage } from 'baileys';
 import fetch from 'node-fetch';
+import fs from 'fs';
+import path from 'path';
 
 export default {
     name: 'mp3',
@@ -12,11 +14,75 @@ export default {
         private: false
     },
 
-    run: async (sock, msg, args, { text }) => {
+    run: async (sock, msg, args, { text, videoPath }) => {
         const from = msg.key.remoteJid;
         const quoted = msg.message?.extendedTextMessage?.contextInfo;
+        const isInteractiveResponse = !!(msg.message?.interactiveResponseMessage || msg.message?.templateButtonReplyMessage);
+        const quoteMsg = isInteractiveResponse ? undefined : msg;
+
+        const safeReact = async (emoji) => {
+            try {
+                await sock.sendMessage(from, { react: { text: emoji, key: msg.key } });
+            } catch (err) {
+                console.warn('[MP3] Failed to send reaction:', err.message);
+            }
+        };
 
         try {
+            // Case 0: Pre-downloaded video path is available (from interactive auto download)
+            if (videoPath && fs.existsSync(videoPath)) {
+                await safeReact('⏳');
+                
+                const tempDir = path.join(process.cwd(), 'temp');
+                if (!fs.existsSync(tempDir)) {
+                    fs.mkdirSync(tempDir, { recursive: true });
+                }
+                const mp3Path = path.join(tempDir, `audio_${Date.now()}.mp3`);
+                
+                try {
+                    const { exec } = await import('child_process');
+                    const { promisify } = await import('util');
+                    const execPromise = promisify(exec);
+                    
+                    console.log(`[MP3] Converting cached video to MP3: ${videoPath} -> ${mp3Path}`);
+                    await execPromise(`ffmpeg -i "${videoPath}" -vn -b:a 128k -y "${mp3Path}"`);
+                    
+                    const audioBuffer = fs.readFileSync(mp3Path);
+                    
+                    await sock.sendMessage(from, {
+                        audio: audioBuffer,
+                        mimetype: 'audio/mpeg',
+                        fileName: `audio_${Date.now()}.mp3`,
+                        ptt: false
+                    }, { quoted: quoteMsg });
+
+                    await safeReact('✅');
+                    await sock.sendMessage(from, { text: "Audio berhasil diproses!" }, { quoted: quoteMsg });
+                    
+                    // Hapus file mp3 sementara
+                    if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
+                    return;
+                } catch (err) {
+                    console.error('[MP3] Conversion error:', err);
+                    if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
+                    // Fallback: Kirim video buffer langsung sebagai audio
+                    try {
+                        const audioBuffer = fs.readFileSync(videoPath);
+                        await sock.sendMessage(from, {
+                            audio: audioBuffer,
+                            mimetype: 'audio/mpeg',
+                            fileName: `audio_${Date.now()}.mp3`,
+                            ptt: false
+                        }, { quoted: quoteMsg });
+                        await safeReact('✅');
+                        await sock.sendMessage(from, { text: "Audio berhasil diproses!" }, { quoted: quoteMsg });
+                        return;
+                    } catch (fallbackErr) {
+                        console.error('[MP3] Fallback sending error:', fallbackErr);
+                    }
+                }
+            }
+
             // Case 1: Reply to a video message
             if (quoted && quoted.quotedMessage?.videoMessage) {
                 const quotedMsg = {
@@ -28,7 +94,7 @@ export default {
                     message: quoted.quotedMessage
                 };
 
-                await sock.sendMessage(from, { react: { text: '⏳', key: msg.key } });
+                await safeReact('⏳');
 
                 try {
                     const videoBuffer = await downloadMediaMessage(
@@ -46,16 +112,16 @@ export default {
                         mimetype: 'audio/mpeg',
                         fileName: `audio_${Date.now()}.mp3`,
                         ptt: false
-                    }, { quoted: msg });
+                    }, { quoted: quoteMsg });
 
-                    await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-                    await sock.sendMessage(from, { text: "Audio berhasil diproses!" }, { quoted: msg });
+                    await safeReact('✅');
+                    await sock.sendMessage(from, { text: "Audio berhasil diproses!" }, { quoted: quoteMsg });
                     return;
 
                 } catch (err) {
                     console.error('Download error:', err);
-                    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                    return sock.sendMessage(from, { text: "❌ Gagal mengunduh video." }, { quoted: msg });
+                    await safeReact('❌');
+                    return sock.sendMessage(from, { text: "❌ Gagal mengunduh video." }, { quoted: quoteMsg });
                 }
             }
             // Case 2: URL provided
@@ -71,10 +137,10 @@ export default {
                 if (!isYouTube && !isTikTok && !isSpotify && !isInstagram && !isFacebook) {
                     return sock.sendMessage(from, {
                         text: "❌ Link tidak didukung!\n\nYang didukung:\n• Spotify\n• TikTok\n• YouTube\n• Instagram\n• Facebook\n• Reply video WhatsApp"
-                    }, { quoted: msg });
+                    }, { quoted: quoteMsg });
                 }
 
-                await sock.sendMessage(from, { react: { text: '⏳', key: msg.key } });
+                await safeReact('⏳');
 
                 // Spotify
                 if (isSpotify) {
@@ -100,7 +166,7 @@ export default {
                             if (waitSeconds > 0 && waitSeconds <= 60) {
                                 await sock.sendMessage(from, {
                                     text: `⏳ *Rate limit tercapai!*\n\nMenunggu ${waitSeconds} detik...\n\n💡 API Spotify memiliki limit 6 request per periode.`
-                                }, { quoted: msg });
+                                }, { quoted: quoteMsg });
 
                                 await new Promise(resolve => setTimeout(resolve, waitTime + 1000));
 
@@ -144,9 +210,9 @@ export default {
                             mimetype: 'audio/mpeg',
                             fileName: `${title}.mp3`,
                             ptt: false
-                        }, { quoted: msg });
+                        }, { quoted: quoteMsg });
 
-                        await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+                        await safeReact('✅');
 
                         // Show remaining quota if low
                         let quotaWarning = '';
@@ -156,11 +222,11 @@ export default {
 
                         await sock.sendMessage(from, {
                             text: `🎵 *${title}*\n👤 ${artist}\n\n✅ Audio berhasil diunduh!${quotaWarning}`
-                        }, { quoted: msg });
+                        }, { quoted: quoteMsg });
 
                     } catch (error) {
                         console.error('[Spotify] Error:', error.message);
-                        await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                        await safeReact('❌');
 
                         let errorMsg = `❌ Gagal mengunduh dari Spotify: ${error.message}`;
 
@@ -173,7 +239,7 @@ export default {
                             errorMsg += '\n\n💡 Pastikan link adalah link track Spotify yang valid.';
                         }
 
-                        return sock.sendMessage(from, { text: errorMsg }, { quoted: msg });
+                        return sock.sendMessage(from, { text: errorMsg }, { quoted: quoteMsg });
                     }
                 }
                 // TikTok
@@ -218,24 +284,23 @@ export default {
                             mimetype: 'audio/mpeg',
                             fileName: 'tiktok_audio.mp3',
                             ptt: false
-                        }, { quoted: msg });
+                        }, { quoted: quoteMsg });
 
-                        await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-                        await sock.sendMessage(from, { text: "Audio berhasil diproses!" }, { quoted: msg });
+                        await safeReact('✅');
+                        await sock.sendMessage(from, { text: "Audio berhasil diproses!" }, { quoted: quoteMsg });
 
                     } catch (error) {
                         console.error('[TikTok] Error:', error.message);
-                        await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                        await safeReact('❌');
                         return sock.sendMessage(from, {
                             text: `❌ Gagal: ${error.message}\n\n💡 Alternatif:\n1. Download video/audio TikTok\n2. Kirim ke bot\n3. Reply dengan .mp3`
-                        }, { quoted: msg });
+                        }, { quoted: quoteMsg });
                     }
                 }
                 // YouTube, Instagram, Facebook
                 else if (isYouTube || isInstagram || isFacebook) {
                     try {
                         const { downloadYTDLPAudio } = await import('../../utils/ytdlp.js');
-                        const fs = await import('fs');
 
                         const result = await downloadYTDLPAudio(url);
 
@@ -244,14 +309,14 @@ export default {
                             mimetype: 'audio/mpeg',
                             fileName: `audio_${Date.now()}.mp3`,
                             ptt: false
-                        }, { quoted: msg });
+                        }, { quoted: quoteMsg });
 
-                        await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+                        await safeReact('✅');
                         try { fs.unlinkSync(result.filePath); } catch {}
                     } catch (error) {
                         console.error('[MP3 Download] Error:', error.message);
                         if (isYouTube) {
-                            await sock.sendMessage(from, { react: { text: '💡', key: msg.key } });
+                            await safeReact('💡');
                             return sock.sendMessage(from, {
                                 text: `📥 *Cara Download Audio YouTube:*
 
@@ -269,10 +334,10 @@ API YouTube tidak stabil, gunakan cara ini:
 3. Reply dengan .mp3 ✅
 
 💡 Opsi 2 lebih mudah!`
-                            }, { quoted: msg });
+                            }, { quoted: quoteMsg });
                         } else {
-                            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                            return sock.sendMessage(from, { text: `❌ Gagal mengunduh audio: ${error.message}` }, { quoted: msg });
+                            await safeReact('❌');
+                            return sock.sendMessage(from, { text: `❌ Gagal mengunduh audio: ${error.message}` }, { quoted: quoteMsg });
                         }
                     }
                 }
@@ -302,15 +367,15 @@ API YouTube tidak stabil, gunakan cara ini:
 .mp3 https://vt.tiktok.com/xxxxx
 
 💡 Paling mudah: Kirim video → .mp3`
-                }, { quoted: msg });
+                }, { quoted: quoteMsg });
             }
 
         } catch (error) {
             console.error('[MP3] Error:', error);
-            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+            await safeReact('❌');
             await sock.sendMessage(from, {
                 text: `❌ Error: ${error.message}`
-            }, { quoted: msg });
+            }, { quoted: quoteMsg });
         }
     }
 }

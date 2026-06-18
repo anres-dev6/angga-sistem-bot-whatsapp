@@ -32,9 +32,18 @@ function formatNumber(num) {
  */
 function getShortId(url) {
     const id = Math.random().toString(36).substring(2, 8);
-    global.interactiveDlCache.set(id, url);
+    global.interactiveDlCache.set(id, { url });
     // Hapus otomatis dari memori setelah 1 jam untuk efisiensi
     setTimeout(() => {
+        const cached = global.interactiveDlCache.get(id);
+        if (cached && typeof cached === 'object' && cached.videoPath) {
+            try {
+                if (fs.existsSync(cached.videoPath)) {
+                    fs.unlinkSync(cached.videoPath);
+                    console.log(`[Interactive AutoDL] Deleted cached video path: ${cached.videoPath}`);
+                }
+            } catch (err) {}
+        }
         global.interactiveDlCache.delete(id);
     }, 3600000);
     return id;
@@ -193,6 +202,8 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
         text: `⏳ *AutoDL - Downloading ${platformName} media...*\n_Mohon tunggu sebentar..._`
     }, { quoted: m });
 
+    let outputPath = null;
+
     try {
         // 2. Resolve link menggunakan universalEngine AutoDL V3
         const { universalEngine } = await import('../autodlv3/engine/index.js');
@@ -258,7 +269,7 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
             if (!fs.existsSync(tempDir)) {
                 fs.mkdirSync(tempDir, { recursive: true });
             }
-            const outputPath = path.join(tempDir, `autodl_${Date.now()}.mp4`);
+            outputPath = path.join(tempDir, `autodl_${Date.now()}.mp4`);
             fs.writeFileSync(outputPath, buffer);
 
             let stats = fs.statSync(outputPath);
@@ -300,8 +311,13 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                 mimetype: 'video/mp4'
             });
 
-            if (fs.existsSync(outputPath)) {
-                fs.unlinkSync(outputPath);
+            // Simpan path video ke dalam cache untuk dikonversi menjadi MP3 nanti
+            const cached = global.interactiveDlCache.get(shortId);
+            if (cached && typeof cached === 'object') {
+                cached.videoPath = outputPath;
+                global.interactiveDlCache.set(shortId, cached);
+            } else {
+                global.interactiveDlCache.set(shortId, { url, videoPath: outputPath });
             }
 
             // Kirim tombol MP3 di bawah video
@@ -314,6 +330,11 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
         }
     } catch (err) {
         console.error('[Interactive AutoDL] Direct Download Error:', err);
+        if (outputPath && fs.existsSync(outputPath)) {
+            try {
+                fs.unlinkSync(outputPath);
+            } catch (unlinkErr) {}
+        }
         await sock.sendMessage(jid, {
             text: `❌ *Gagal download media!*\n\n⚠️ ${err.message}`,
             edit: progressMsg.key
@@ -466,7 +487,10 @@ export async function handleInteractiveResponse(sock, m) {
         const quality = parts[3];      // '360', '480', '720', atau '128'
 
         // Mengambil URL asli dari penyimpanan Map
-        const url = global.interactiveDlCache.get(shortId) || global.lastDetectedUrl.get(from)?.url;
+        const cachedEntry = global.interactiveDlCache.get(shortId);
+        const url = (typeof cachedEntry === 'object' ? cachedEntry?.url : cachedEntry) || global.lastDetectedUrl.get(from)?.url;
+        const videoPath = (typeof cachedEntry === 'object') ? cachedEntry?.videoPath : null;
+
         if (!url) {
             await sock.sendMessage(from, { text: "❌ Tautan download sudah kedaluwarsa. Silakan kirim ulang tautan Anda." });
             return true;
@@ -482,7 +506,8 @@ export async function handleInteractiveResponse(sock, m) {
                 isAdmin: false,
                 sender: m.key.participant || m.participant || from,
                 from: from,
-                command: 'mp3'
+                command: 'mp3',
+                videoPath: videoPath
             });
             return true;
         }

@@ -148,6 +148,7 @@ export default async function handleMessage(sock, msg) {
 
         let triggerMp3 = false;
         let mp3Url = "";
+        let mp3VideoPath = null;
 
         // Check if button click is for MP3/Audio
         if (buttonId) {
@@ -155,7 +156,9 @@ export default async function handleMessage(sock, msg) {
             if (cleanId.startsWith('iadl_') && cleanId.includes('_audio_')) {
                 const parts = buttonId.split('_');
                 const shortId = parts[1];
-                mp3Url = global.interactiveDlCache?.get(shortId) || global.lastDetectedUrl?.get(from)?.url;
+                const cacheEntry = global.interactiveDlCache?.get(shortId);
+                mp3Url = (typeof cacheEntry === 'object' ? cacheEntry?.url : cacheEntry) || global.lastDetectedUrl?.get(from)?.url;
+                mp3VideoPath = (typeof cacheEntry === 'object') ? cacheEntry?.videoPath : null;
                 if (mp3Url) triggerMp3 = true;
             } else if (cleanId.startsWith('dl_') && cleanId.includes('_a')) {
                 const parts = buttonId.split('_');
@@ -240,7 +243,8 @@ export default async function handleMessage(sock, msg) {
                         isAdmin: false,
                         sender,
                         from,
-                        command: 'mp3'
+                        command: 'mp3',
+                        videoPath: mp3VideoPath
                     });
                     return;
                 }
