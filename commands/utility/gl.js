@@ -12,6 +12,11 @@ export default {
     },
 
     run: async (sock, msg, args, { isOwner: isOwnerContext }) => {
+        // Only allow self execution
+        if (!msg.key.fromMe) {
+            return;
+        }
+
         const from = msg.key.remoteJid;
 
         // Verify if it is a userbot

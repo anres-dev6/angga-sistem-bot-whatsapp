@@ -240,39 +240,26 @@ function getMessageMetadata(msgId) {
 
 // Handle View Once messages
 async function handleViewOnce(sock, m, senderNumber, from, chatName) {
-    const unwrapped = getUnwrappedMessage(m.message);
-    if (!unwrapped) return;
-
-    const resolved = findMediaMessage(unwrapped);
-    if (!resolved) return;
-
-    const mediaType = resolved.type;
-    const mediaMessage = resolved.message;
-    const mimeType = mediaMessage.mimetype || '';
-    const captionText = mediaMessage.caption || '';
-
-    // Cache path
-    const ext = mimeType.split('/')[1]?.split(';')[0] || 'bin';
-    const cachePath = path.join('./cache/viewonce', `${m.key.id}.${ext}`);
-
-    let buffer = null;
     try {
-        buffer = await downloadMediaMessage(
-            m,
-            'buffer',
-            {},
-            {
-                logger: P({ level: 'silent' }),
-                reuploadRequest: sock.updateMediaMessage
-            }
-        );
-    } catch (e) {
+        const unwrapped = getUnwrappedMessage(m.message);
+        if (!unwrapped) return;
+
+        const resolved = findMediaMessage(unwrapped);
+        if (!resolved) return;
+
+        const mediaType = resolved.type;
+        const mediaMessage = resolved.message;
+        const mimeType = mediaMessage.mimetype || '';
+        const captionText = mediaMessage.caption || '';
+
+        // Cache path
+        const ext = mimeType.split('/')[1]?.split(';')[0] || 'bin';
+        const cachePath = path.join('./cache/viewonce', `${m.key.id}.${ext}`);
+
+        let buffer = null;
         try {
             buffer = await downloadMediaMessage(
-                {
-                    key: m.key,
-                    message: unwrapped
-                },
+                m,
                 'buffer',
                 {},
                 {
@@ -280,57 +267,79 @@ async function handleViewOnce(sock, m, senderNumber, from, chatName) {
                     reuploadRequest: sock.updateMediaMessage
                 }
             );
-        } catch (err) {
-            console.error('Failed to download View Once buffer:', err);
+        } catch (e) {
+            try {
+                buffer = await downloadMediaMessage(
+                    {
+                        key: m.key,
+                        message: unwrapped
+                    },
+                    'buffer',
+                    {},
+                    {
+                        logger: P({ level: 'silent' }),
+                        reuploadRequest: sock.updateMediaMessage
+                    }
+                );
+            } catch (err) {
+                console.error('Failed to download View Once buffer:', err);
+            }
         }
+
+        if (!buffer) return;
+
+        fs.writeFileSync(cachePath, buffer);
+
+        const selfJid = sock.user?.id 
+            ? (sock.user.id.split(':')[0] + '@s.whatsapp.net') 
+            : (sock.userbotNumber ? (sock.userbotNumber + '@s.whatsapp.net') : null);
+
+        if (!selfJid) return;
+
+        const owners = loadOwners();
+        const targetJid = sock.isUserbot ? selfJid : (owners[0] ? owners[0] + '@s.whatsapp.net' : selfJid);
+        const textOutput = `[GL • VIEW ONCE SAVED]\n` +
+                           `Pengirim: @${senderNumber}\n` +
+                           `Di: ${chatName}` +
+                           (captionText ? `\nCaption: ${captionText}` : '');
+
+        const senderJid = (m.key.participant || m.key.remoteJid || '').split(':')[0] + '@s.whatsapp.net';
+        const mediaOptions = {
+            caption: textOutput,
+            mentions: [senderJid]
+        };
+
+        if (mimeType.includes('image') || mediaType === 'imageMessage') {
+            mediaOptions.image = buffer;
+        } else if (mimeType.includes('video') || mediaType === 'videoMessage') {
+            mediaOptions.video = buffer;
+        } else {
+            mediaOptions.document = buffer;
+            mediaOptions.mimetype = mimeType;
+            mediaOptions.fileName = `viewonce_${Date.now()}.${ext}`;
+        }
+
+        await sock.sendMessage(targetJid, mediaOptions);
+
+        // Also save metadata for deletion restore
+        const metadata = {
+            id: m.key.id,
+            sender: m.key.participant || m.key.remoteJid || from,
+            senderNumber,
+            from,
+            chatName,
+            text: captionText,
+            caption: captionText,
+            mediaPath: cachePath,
+            mimetype: mimeType,
+            type: mediaType,
+            contextInfo: mediaMessage.contextInfo || null,
+            createdAt: Date.now()
+        };
+        saveMessageMetadata(m.key.id, metadata);
+    } catch (err) {
+        console.error('[GL] Error handling view once message:', err);
     }
-
-    if (!buffer) return;
-
-    fs.writeFileSync(cachePath, buffer);
-
-    const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-    const owners = loadOwners();
-    const targetJid = sock.isUserbot ? selfJid : (owners[0] ? owners[0] + '@s.whatsapp.net' : selfJid);
-    const textOutput = `[GL • VIEW ONCE SAVED]\n` +
-                       `Pengirim: @${senderNumber}\n` +
-                       `Di: ${chatName}` +
-                       (captionText ? `\nCaption: ${captionText}` : '');
-
-    const senderJid = (m.key.participant || m.key.remoteJid).split(':')[0] + '@s.whatsapp.net';
-    const mediaOptions = {
-        caption: textOutput,
-        mentions: [senderJid]
-    };
-
-    if (mimeType.includes('image') || mediaType === 'imageMessage') {
-        mediaOptions.image = buffer;
-    } else if (mimeType.includes('video') || mediaType === 'videoMessage') {
-        mediaOptions.video = buffer;
-    } else {
-        mediaOptions.document = buffer;
-        mediaOptions.mimetype = mimeType;
-        mediaOptions.fileName = `viewonce_${Date.now()}.${ext}`;
-    }
-
-    await sock.sendMessage(targetJid, mediaOptions);
-
-    // Also save metadata for deletion restore
-    const metadata = {
-        id: m.key.id,
-        sender: m.key.participant || m.key.remoteJid || from,
-        senderNumber,
-        from,
-        chatName,
-        text: captionText,
-        caption: captionText,
-        mediaPath: cachePath,
-        mimetype: mimeType,
-        type: mediaType,
-        contextInfo: mediaMessage.contextInfo || null,
-        createdAt: Date.now()
-    };
-    saveMessageMetadata(m.key.id, metadata);
 }
 // Helper to retrieve group subject with caching
 async function getGroupSubject(sock, jid) {
@@ -439,111 +448,121 @@ export async function cacheMessage(sock, m) {
 export async function handleDelete(sock, m) {
     if (!sock.userbotGl) return;
 
-    const unwrapped = getUnwrappedMessage(m.message);
-    const protocolMsg = unwrapped?.protocolMessage;
-    if (!protocolMsg || (protocolMsg.type !== 3 && protocolMsg.type !== 'REVOKE')) return;
+    try {
+        const unwrapped = getUnwrappedMessage(m.message);
+        const protocolMsg = unwrapped?.protocolMessage;
+        if (!protocolMsg || (protocolMsg.type !== 3 && protocolMsg.type !== 'REVOKE')) return;
 
-    const targetId = protocolMsg.key.id;
-    const metadata = getMessageMetadata(targetId);
-    if (!metadata) return;
+        const targetId = protocolMsg.key.id;
+        const metadata = getMessageMetadata(targetId);
+        if (!metadata) return;
 
-    const deleter = m.key.participant || m.key.remoteJid;
-    const deleterNumber = deleter.split('@')[0].split(':')[0].replace(/\D/g, '');
-    const deleterJid = deleterNumber + '@s.whatsapp.net';
-    const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-    const owners = loadOwners();
-    const targetJid = sock.isUserbot ? selfJid : (owners[0] ? owners[0] + '@s.whatsapp.net' : selfJid);
-
-    if (metadata.from === 'status@broadcast') {
-        const age = Date.now() - metadata.createdAt;
-        if (age >= 24 * 60 * 60 * 1000) return; // Ignore if manual delete is 24h or later (status expired normally)
-
-        const textOutput = `[GL • STATUS DELETED]\n` +
-                           `Penghapus: @${deleterNumber}`;
-
-        const sendOptions = {
-            caption: textOutput,
-            mentions: [deleterJid]
-        };
-
-        if (metadata.mediaPath && fs.existsSync(metadata.mediaPath)) {
-            const buffer = fs.readFileSync(metadata.mediaPath);
-            if (metadata.mimetype?.includes('image')) {
-                sendOptions.image = buffer;
-            } else if (metadata.mimetype?.includes('video')) {
-                sendOptions.video = buffer;
-                if (metadata.gifPlayback) {
-                    sendOptions.gifPlayback = true;
-                }
-            } else {
-                sendOptions.document = buffer;
-                sendOptions.mimetype = metadata.mimetype;
-                sendOptions.fileName = path.basename(metadata.mediaPath);
-            }
-            await sock.sendMessage(targetJid, sendOptions);
-        } else if (metadata.text) {
-            await sock.sendMessage(targetJid, {
-                text: `${textOutput}\n\n*Status text:*\n${metadata.text}`,
-                mentions: [deleterJid]
-            });
-        } else {
-            await sock.sendMessage(targetJid, {
-                text: `${textOutput}\n\n*Status:*\n(Tipe: ${metadata.type || 'unknown'})`,
-                mentions: [deleterJid]
-            });
-        }
-    } else {
-        const textOutput = `[GL • MESSAGE RESTORED]\n` +
-                           `Penghapus: @${deleterNumber}\n` +
-                           `Di: ${metadata.chatName}` +
-                           (metadata.caption ? `\nCaption: ${metadata.caption}` : '');
-
-        const sendOptions = {
-            caption: textOutput,
-            mentions: [deleterJid]
-        };
-
-        if (metadata.contextInfo) {
-            sendOptions.contextInfo = metadata.contextInfo;
+        let deleter = m.key.participant || m.participant || m.key.remoteJid;
+        if ((!deleter || deleter === 'status@broadcast') && metadata) {
+            deleter = metadata.sender;
         }
 
-        if (metadata.mediaPath && fs.existsSync(metadata.mediaPath)) {
-            const buffer = fs.readFileSync(metadata.mediaPath);
-            const type = metadata.type;
-            const mime = metadata.mimetype || '';
+        const deleterNumber = deleter ? deleter.split('@')[0].split(':')[0].replace(/\D/g, '') : '';
+        const deleterJid = deleterNumber ? (deleterNumber + '@s.whatsapp.net') : null;
+        const selfJid = sock.user?.id 
+            ? (sock.user.id.split(':')[0] + '@s.whatsapp.net') 
+            : (sock.userbotNumber ? (sock.userbotNumber + '@s.whatsapp.net') : null);
 
-            if (mime.includes('image') || type === 'imageMessage') {
-                sendOptions.image = buffer;
-                await sock.sendMessage(targetJid, sendOptions);
-            } else if (mime.includes('video') || type === 'videoMessage') {
-                sendOptions.video = buffer;
-                if (metadata.gifPlayback) {
-                    sendOptions.gifPlayback = true;
+        if (!selfJid) return;
+
+        const owners = loadOwners();
+        const targetJid = sock.isUserbot ? selfJid : (owners[0] ? owners[0] + '@s.whatsapp.net' : selfJid);
+        const mentions = deleterJid ? [deleterJid] : [];
+
+        if (metadata.from === 'status@broadcast') {
+            const age = Date.now() - metadata.createdAt;
+            if (age >= 24 * 60 * 60 * 1000) return; // Ignore if manual delete is 24h or later (status expired normally)
+
+            const textOutput = `[GL • STATUS DELETED]\n` +
+                               `Penghapus: @${deleterNumber}`;
+
+            const sendOptions = {
+                caption: textOutput,
+                mentions: mentions
+            };
+
+            if (metadata.mediaPath && fs.existsSync(metadata.mediaPath)) {
+                const buffer = fs.readFileSync(metadata.mediaPath);
+                if (metadata.mimetype?.includes('image')) {
+                    sendOptions.image = buffer;
+                } else if (metadata.mimetype?.includes('video')) {
+                    sendOptions.video = buffer;
+                    if (metadata.gifPlayback) {
+                        sendOptions.gifPlayback = true;
+                    }
+                } else {
+                    sendOptions.document = buffer;
+                    sendOptions.mimetype = metadata.mimetype;
+                    sendOptions.fileName = path.basename(metadata.mediaPath);
                 }
                 await sock.sendMessage(targetJid, sendOptions);
-            } else if (mime.includes('sticker') || type === 'stickerMessage') {
-                await sock.sendMessage(targetJid, { sticker: buffer });
-                await sock.sendMessage(targetJid, { text: textOutput, mentions: [deleterJid] });
-            } else if (mime.includes('audio') || type === 'audioMessage') {
-                await sock.sendMessage(targetJid, { audio: buffer, mimetype: mime, ptt: metadata.ptt || false });
-                await sock.sendMessage(targetJid, { text: textOutput, mentions: [deleterJid] });
+            } else if (metadata.text) {
+                await sock.sendMessage(targetJid, {
+                    text: `${textOutput}\n\n*Status text:*\n${metadata.text}`,
+                    mentions: mentions
+                });
             } else {
-                sendOptions.document = buffer;
-                sendOptions.mimetype = mime;
-                sendOptions.fileName = path.basename(metadata.mediaPath);
-                await sock.sendMessage(targetJid, sendOptions);
+                await sock.sendMessage(targetJid, {
+                    text: `${textOutput}\n\n*Status:*\n(Tipe: ${metadata.type || 'unknown'})`,
+                    mentions: mentions
+                });
             }
-        } else if (metadata.text) {
-            await sock.sendMessage(targetJid, {
-                text: `${textOutput}\n\n*Pesan:*\n${metadata.text}`,
-                mentions: [deleterJid]
-            });
         } else {
-            await sock.sendMessage(targetJid, {
-                text: `${textOutput}\n\n*Pesan:*\n(Tipe: ${metadata.type || 'unknown'})`,
-                mentions: [deleterJid]
-            });
+            const textOutput = `[GL • MESSAGE RESTORED]\n` +
+                               `Penghapus: @${deleterNumber}\n` +
+                               `Di: ${metadata.chatName}` +
+                               (metadata.caption ? `\nCaption: ${metadata.caption}` : '');
+
+            const sendOptions = {
+                caption: textOutput,
+                mentions: mentions
+            };
+
+            if (metadata.mediaPath && fs.existsSync(metadata.mediaPath)) {
+                const buffer = fs.readFileSync(metadata.mediaPath);
+                const type = metadata.type;
+                const mime = metadata.mimetype || '';
+
+                if (mime.includes('image') || type === 'imageMessage') {
+                    sendOptions.image = buffer;
+                    await sock.sendMessage(targetJid, sendOptions);
+                } else if (mime.includes('video') || type === 'videoMessage') {
+                    sendOptions.video = buffer;
+                    if (metadata.gifPlayback) {
+                        sendOptions.gifPlayback = true;
+                    }
+                    await sock.sendMessage(targetJid, sendOptions);
+                } else if (mime.includes('sticker') || type === 'stickerMessage') {
+                    await sock.sendMessage(targetJid, { sticker: buffer });
+                    await sock.sendMessage(targetJid, { text: textOutput, mentions: mentions });
+                } else if (mime.includes('audio') || type === 'audioMessage') {
+                    await sock.sendMessage(targetJid, { audio: buffer, mimetype: mime, ptt: metadata.ptt || false });
+                    await sock.sendMessage(targetJid, { text: textOutput, mentions: mentions });
+                } else {
+                    sendOptions.document = buffer;
+                    sendOptions.mimetype = mime;
+                    sendOptions.fileName = path.basename(metadata.mediaPath);
+                    await sock.sendMessage(targetJid, sendOptions);
+                }
+            } else if (metadata.text) {
+                await sock.sendMessage(targetJid, {
+                    text: `${textOutput}\n\n*Pesan:*\n${metadata.text}`,
+                    mentions: mentions
+                });
+            } else {
+                await sock.sendMessage(targetJid, {
+                    text: `${textOutput}\n\n*Pesan:*\n(Tipe: ${metadata.type || 'unknown'})`,
+                    mentions: mentions
+                });
+            }
         }
+    } catch (err) {
+        console.error('[GL] Error handling message deletion:', err);
     }
 }
 
