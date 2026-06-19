@@ -220,11 +220,8 @@ export default async function handleMessage(sock, msg) {
             try {
                 let isOwnerForContext = isOwner;
                 if (sock.isUserbot) {
-                    const isMainOwner = isOwner;
-                    const isUserbotOwner = (senderNumber === sock.userbotNumber || senderNumber === sock.userbotCreator);
-                    if (isMainOwner) {
-                        isOwnerForContext = true;
-                    } else if (isUserbotOwner) {
+                    const isUserbotSelf = (senderNumber === sock.userbotNumber);
+                    if (isUserbotSelf) {
                         if (!sock.userbotFeatures.includes('mp3')) {
                             return sock.sendMessage(from, { text: '❌ Fitur ini tidak diaktifkan oleh Owner.' }, { quoted: m });
                         }
@@ -2301,19 +2298,16 @@ export default async function handleMessage(sock, msg) {
         let isOwnerForContext = isOwner;
 
         if (sock.isUserbot) {
-            const isMainOwner = isOwner;
-            const isUserbotOwner = (senderNumber === sock.userbotNumber || senderNumber === sock.userbotCreator);
+            const isUserbotSelf = (senderNumber === sock.userbotNumber);
 
-            if (isMainOwner) {
-                isOwnerForContext = true;
-            } else if (isUserbotOwner) {
+            if (isUserbotSelf) {
                 // Userbot owner only has access to allowed features
                 if (!sock.userbotFeatures.includes(cmdName)) {
                     return sock.sendMessage(from, { text: '❌ Fitur ini tidak diaktifkan oleh Owner.' }, { quoted: m });
                 }
                 isOwnerForContext = true;
             } else {
-                // Regular users have no access to commands on userbots
+                // Regular users, creator, and main owner have no access to commands on userbots
                 return;
             }
         }
@@ -2341,7 +2335,7 @@ export default async function handleMessage(sock, msg) {
         }
 
         // 1. Owner Access
-        if (command.access?.owner && !isOwner) {
+        if (command.access?.owner && !isOwnerForContext) {
             return sock.sendMessage(from, { text: 'Perintah ini hanya untuk owner.' }, { quoted: m });
         }
 
