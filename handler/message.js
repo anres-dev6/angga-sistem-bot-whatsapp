@@ -498,9 +498,21 @@ export default async function handleMessage(sock, msg) {
                 const path = await import('path');
                 const menuImagePath = path.join(process.cwd(), 'data', 'anres-menu.png');
 
-                if (fs.default.existsSync(menuImagePath)) {
+                let finalMenuImagePath = menuImagePath;
+                if (!fs.default.existsSync(finalMenuImagePath)) {
+                    const dataDir = path.dirname(menuImagePath);
+                    if (fs.default.existsSync(dataDir)) {
+                        const files = fs.default.readdirSync(dataDir);
+                        const matchingFile = files.find(file => file.toLowerCase().endsWith('anres-menu.png'));
+                        if (matchingFile) {
+                            finalMenuImagePath = path.join(dataDir, matchingFile);
+                        }
+                    }
+                }
+
+                if (fs.default.existsSync(finalMenuImagePath)) {
                     await sock.sendMessage(from, {
-                        image: fs.default.readFileSync(menuImagePath),
+                        image: fs.default.readFileSync(finalMenuImagePath),
                         caption: greetingText
                     }, { quoted: m });
                 } else {

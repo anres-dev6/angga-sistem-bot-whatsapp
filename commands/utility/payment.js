@@ -21,8 +21,20 @@ export default {
         const from = msg.key.remoteJid;
 
         try {
-            // Check if QRIS image exists
-            if (!fs.existsSync(qrisPath)) {
+            // Check if QRIS image exists, with fallback for trashed files
+            let finalQrisPath = qrisPath;
+            if (!fs.existsSync(finalQrisPath)) {
+                const dataDir = path.dirname(qrisPath);
+                if (fs.existsSync(dataDir)) {
+                    const files = fs.readdirSync(dataDir);
+                    const matchingFile = files.find(file => file.toLowerCase().endsWith('qris.png'));
+                    if (matchingFile) {
+                        finalQrisPath = path.join(dataDir, matchingFile);
+                    }
+                }
+            }
+
+            if (!fs.existsSync(finalQrisPath)) {
                 return sock.sendMessage(from, {
                     text: "❌ File gambar QRIS tidak ditemukan di server! Silakan hubungi owner untuk mengonfigurasinya."
                 }, { quoted: msg });
@@ -32,7 +44,7 @@ export default {
             await sock.sendMessage(from, { react: { text: '⏳', key: msg.key } });
 
             // Read image buffer
-            const qrisBuffer = fs.readFileSync(qrisPath);
+            const qrisBuffer = fs.readFileSync(finalQrisPath);
 
             // Construct payment caption
             const captionText = `❏ *PAYMENT INFO*
