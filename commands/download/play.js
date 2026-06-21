@@ -46,11 +46,12 @@ export default {
 
                 // Get video info
                 try {
-                    const infoCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --get-title --get-duration "${url}"`;
+                    const safeUrl = url.replace(/'/g, "'\\''");
+                    const infoCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --dump-json '${safeUrl}'`;
                     const { stdout } = await execPromise(infoCmd, { timeout: 10000 });
-                    const lines = stdout.trim().split('\n');
-                    title = lines[0] || 'Unknown';
-                    duration = lines[1] || 'N/A';
+                    const info = JSON.parse(stdout.trim());
+                    title = info.title || 'Unknown';
+                    duration = info.duration_string || 'N/A';
                 } catch (err) {
                     title = 'Unknown';
                     duration = 'N/A';
@@ -58,13 +59,18 @@ export default {
             } else {
                 // Search query
                 try {
-                    const searchCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} "ytsearch1:${input}" --get-id --get-title --get-duration`;
+                    const safeSearch = `ytsearch1:${input}`.replace(/'/g, "'\\''");
+                    const searchCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --dump-json '${safeSearch}'`;
                     const { stdout } = await execPromise(searchCmd, { timeout: 15000 });
+                    
+                    if (!stdout.trim()) {
+                        throw new Error('Lagu tidak ditemukan');
+                    }
 
-                    const lines = stdout.trim().split('\n');
-                    title = lines[0] || 'Unknown';
-                    const videoId = lines[1] || '';
-                    duration = lines[2] || 'N/A';
+                    const info = JSON.parse(stdout.trim());
+                    title = info.title || 'Unknown';
+                    const videoId = info.id || '';
+                    duration = info.duration_string || 'N/A';
 
                     if (!videoId) {
                         throw new Error('Lagu tidak ditemukan');
@@ -74,7 +80,7 @@ export default {
                     console.log('[Play] Found:', title);
                 } catch (err) {
                     console.error('[Play] Search error:', err);
-                    throw new Error('Gagal mencari lagu. Coba kata kunci lain.');
+                    throw new Error(err.message.includes('tidak ditemukan') ? 'Lagu tidak ditemukan' : 'Gagal mencari lagu. Coba kata kunci lain.');
                 }
             }
 
