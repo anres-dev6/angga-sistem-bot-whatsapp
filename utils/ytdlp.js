@@ -148,7 +148,7 @@ export async function downloadAudio(url, quality = '192', outputPath) {
     const hasFfmpeg = await checkFfmpegAvailable();
     if (hasFfmpeg) {
         try {
-            const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -x --audio-format mp3 --audio-quality ${quality}K -o "${safeOutputPath}" "${url}"`;
+            const cmd = `"${ytdlpCmd}" ${getYtdlpBaseArgs()} -f "bestaudio/best" -x --audio-format mp3 --audio-quality ${quality}K -o "${safeOutputPath}" "${url}"`;
             console.log('[YT-DLP] Downloading audio (MP3 conversion):', cmd);
 
             await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });

@@ -1,14 +1,12 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { sendAudioQualityList } from '../../utils/interactiveMessage.js';
-
-const execPromise = promisify(exec);
+import { getVideoInfo, formatDuration, downloadYTDLPAudio } from '../../utils/ytdlp.js';
+import fs from 'fs';
+import path from 'path';
 
 export default {
     name: 'play',
     aliases: ['play', 'song', 'musik'],
     tags: ['download'],
-    description: 'Search dan download musik dari YouTube',
+    description: 'Search dan download musik dari YouTube langsung ke MP3',
     access: {
         owner: false,
         group: false,
@@ -17,92 +15,119 @@ export default {
 
     run: async (sock, msg, args) => {
         const from = msg.key.remoteJid;
+        const input = args.join(' ');
         let progressMsg;
 
-        try {
-            const input = args.join(' ');
-
-            if (!input) {
-                return sock.sendMessage(from, {
-                    text: "❌ Masukin judul lagu atau link YouTube!\n\n💡 Contoh:\n.play dewa 19 kangen\n.play https://youtu.be/xxxxx"
-                }, { quoted: msg });
+        const safeReact = async (emoji) => {
+            try {
+                await sock.sendMessage(from, { react: { text: emoji, key: msg.key } });
+            } catch (err) {
+                console.warn('[Play] Failed to send reaction:', err.message);
             }
+        };
+
+        if (!input) {
+            return sock.sendMessage(from, {
+                text: "❌ Masukin judul lagu atau link YouTube!\n\n💡 Contoh:\n.play dewa 19 - kangen\n.play dewa 19 kangen\n.play https://youtu.be/xxxxx"
+            }, { quoted: msg });
+        }
+
+        try {
+            await safeReact('⏳');
 
             progressMsg = await sock.sendMessage(from, {
-                text: `🔍 *Searching...*\n\n🎵 "${input}"`
+                text: `🔍 *Mencari:* "${input}"...\n*Mohon tunggu sebentar.*`
             }, { quoted: msg });
 
-            console.log('[Play] Processing:', input);
+            let url = input;
+            let title = '';
+            let duration = '';
+            let uploader = 'Unknown';
+            let info;
 
-            let url, title, duration;
+            const isUrl = /youtube\.com|youtu\.be/i.test(input);
 
-            const { getYtdlpPath, getYtdlpBaseArgs } = await import('../../utils/ytdlpBinary.js');
-            const ytdlpBin = getYtdlpPath().replace(/\\/g, '/');
-
-            // Check if input is URL or search query
-            if (input.includes('youtube.com') || input.includes('youtu.be')) {
+            if (isUrl) {
                 // Direct URL
+                info = await getVideoInfo(input);
                 url = input;
-
-                // Get video info
-                try {
-                    const safeUrl = url.replace(/'/g, "'\\''");
-                    const infoCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --dump-json '${safeUrl}'`;
-                    const { stdout } = await execPromise(infoCmd, { timeout: 10000 });
-                    const info = JSON.parse(stdout.trim());
-                    title = info.title || 'Unknown';
-                    duration = info.duration_string || 'N/A';
-                } catch (err) {
-                    title = 'Unknown';
-                    duration = 'N/A';
-                }
             } else {
                 // Search query
-                try {
-                    const safeSearch = `ytsearch1:${input}`.replace(/'/g, "'\\''");
-                    const searchCmd = `"${ytdlpBin}" ${getYtdlpBaseArgs()} --dump-json '${safeSearch}'`;
-                    const { stdout } = await execPromise(searchCmd, { timeout: 15000 });
-                    
-                    if (!stdout.trim()) {
-                        throw new Error('Lagu tidak ditemukan');
-                    }
-
-                    const info = JSON.parse(stdout.trim());
-                    title = info.title || 'Unknown';
-                    const videoId = info.id || '';
-                    duration = info.duration_string || 'N/A';
-
-                    if (!videoId) {
-                        throw new Error('Lagu tidak ditemukan');
-                    }
-
-                    url = `https://youtube.com/watch?v=${videoId}`;
-                    console.log('[Play] Found:', title);
-                } catch (err) {
-                    console.error('[Play] Search error:', err);
-                    throw new Error(err.message.includes('tidak ditemukan') ? 'Lagu tidak ditemukan' : 'Gagal mencari lagu. Coba kata kunci lain.');
+                const searchQuery = `ytsearch1:${input}`;
+                info = await getVideoInfo(searchQuery);
+                if (!info || !info.id) {
+                    throw new Error('Lagu tidak ditemukan. Coba kata kunci lain.');
                 }
+                url = `https://youtube.com/watch?v=${info.id}`;
             }
 
-            // Send interactive quality list
-            await sendAudioQualityList(sock, from, title, duration, url);
+            title = info.title || 'Music';
+            duration = formatDuration(info.duration);
+            uploader = info.uploader || info.channel || 'Unknown';
 
-            // Delete progress message
+            // Clean title for display
+            const cleanTitle = title.replace(/[\[\]]/g, '').trim();
+
             await sock.sendMessage(from, {
-                delete: progressMsg.key
+                text: `🎵 *Music Found!*\n\n📝 *Judul:* ${cleanTitle}\n⏱️ *Durasi:* ${duration}\n👤 *Uploader:* ${uploader}\n\n📥 *Sedang mendownload MP3...*`,
+                edit: progressMsg.key
+            });
+
+            // Download MP3 using standard 128kbps quality
+            const result = await downloadYTDLPAudio(url, '128');
+
+            if (!result || !result.filePath || !fs.existsSync(result.filePath)) {
+                throw new Error('Gagal mendownload audio dari YouTube.');
+            }
+
+            const stats = fs.statSync(result.filePath);
+            const fileSizeMB = stats.size / (1024 * 1024);
+
+            if (fileSizeMB > 100) {
+                fs.unlinkSync(result.filePath);
+                throw new Error('Ukuran file audio terlalu besar (>100MB)!');
+            }
+
+            await sock.sendMessage(from, {
+                text: `📤 *Mengirim audio "${cleanTitle}"...*`,
+                edit: progressMsg.key
+            });
+
+            // Sanitize filename
+            const safeFilename = cleanTitle.replace(/[\\/:*?"<>|]/g, '').trim();
+
+            await sock.sendMessage(from, {
+                audio: fs.readFileSync(result.filePath),
+                mimetype: 'audio/mpeg',
+                fileName: `${safeFilename}.mp3`,
+                ptt: false
+            }, { quoted: msg });
+
+            // Clean up temporary file
+            if (fs.existsSync(result.filePath)) {
+                fs.unlinkSync(result.filePath);
+            }
+
+            // Success reaction and final update
+            await safeReact('✅');
+            await sock.sendMessage(from, {
+                text: `✅ *Selesai!*\n\n🎵 *${cleanTitle}* berhasil dikirim.\n⏱️ Durasi: ${duration}\n📦 Ukuran: ${fileSizeMB.toFixed(2)} MB`,
+                edit: progressMsg.key
             });
 
         } catch (err) {
-            console.error('[Play] Error:', err.message);
+            console.error('[Play] Error:', err);
+            await safeReact('❌');
 
-            let errorMsg = '❌ *Gagal!*\n\n';
-
-            if (err.message.includes('tidak ditemukan') || err.message.includes('No video')) {
-                errorMsg += '🔍 Lagu tidak ditemukan.\n💡 Coba kata kunci yang lebih spesifik atau gunakan link YouTube langsung.';
+            let errorMsg = '❌ *Gagal memutar lagu!*\n\n';
+            if (err.message.includes('tidak ditemukan')) {
+                errorMsg += '🔍 Lagu tidak ditemukan. Coba kata kunci yang lebih spesifik.';
             } else if (err.message.includes('private')) {
                 errorMsg += '🔒 Video private atau age-restricted.';
+            } else if (err.message.includes('terlalu besar')) {
+                errorMsg += '📦 Ukuran file audio melebihi batas 100MB.';
             } else {
-                errorMsg += `⚠️ ${err.message}\n\n💡 Tips:\n• Gunakan link YouTube langsung\n• Coba kata kunci lebih spesifik`;
+                errorMsg += `⚠️ ${err.message}`;
             }
 
             if (progressMsg && progressMsg.key) {
