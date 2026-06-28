@@ -101,10 +101,23 @@ async function startBot() {
                 setTimeout(() => startBot(), 3000);
             } else {
                 console.log(chalk.red("\n❌ Koneksi gagal / Sesi telah dikeluarkan (Logged Out)."));
-                console.log(chalk.yellow(`💡 Menghapus folder sesi '${authDir}'...`));
+                console.log(chalk.yellow(`💡 Menghapus file sesi di '${authDir}'...`));
                 try {
-                    fs.rmSync(authDir, { recursive: true, force: true });
-                    console.log(chalk.green("✅ Folder sesi berhasil dihapus."));
+                    if (fs.existsSync(authDir)) {
+                        const files = fs.readdirSync(authDir);
+                        for (const file of files) {
+                            if (file !== 'blacklist.json' && file !== 'self_mode.json') {
+                                const filePath = path.join(authDir, file);
+                                const stat = fs.statSync(filePath);
+                                if (stat.isDirectory()) {
+                                    fs.rmSync(filePath, { recursive: true, force: true });
+                                } else {
+                                    fs.unlinkSync(filePath);
+                                }
+                            }
+                        }
+                    }
+                    console.log(chalk.green("✅ File sesi berhasil dihapus."));
                 } catch (err) {
                     console.error("Gagal menghapus folder sesi:", err);
                 }
@@ -115,7 +128,7 @@ async function startBot() {
     });
 
     // ============ BAGIAN 3: Pairing Code (Headless & PM2 Compatible) ============
-    if (!sock.authState.creds.registered) {
+    if (!sock.authState.creds.registered && !sock.authState.creds.me) {
         const envPhoneNumber = process.env.PAIRING_NUMBER || process.env.BOT_NUMBER;
         const isInteractive = process.stdin.isTTY;
 
