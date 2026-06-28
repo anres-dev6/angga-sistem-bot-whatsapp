@@ -716,7 +716,7 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
         });
 
         // Request pairing code if not registered
-        if (!sock.authState.creds.registered) {
+        if (!sock.authState.creds.registered && !sock.authState.creds.me) {
             setTimeout(async () => {
                 try {
                     const code = await sock.requestPairingCode(number);
