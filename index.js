@@ -95,15 +95,20 @@ async function startBot() {
 
             console.error(chalk.red("⚠️  Connection Closed:"), errorReason);
 
-            // Don't auto-restart if we're in pairing mode AND it's a fatal error (like 401)
-            // But if it's just a network glitch, we should probably try again or keep the process alive
-            if (!isPairing || shouldReconnect) {
+            // Don't auto-restart if it's a fatal error (like 401: logged out)
+            if (shouldReconnect) {
                 console.log(chalk.red("Koneksi putus, mencoba lagi..."));
                 setTimeout(() => startBot(), 3000);
             } else {
-                console.log(chalk.red("\n❌ Koneksi gagal saat pairing/pairing selesai."));
-                console.log(chalk.yellow("💡 Jika pairing berhasil, jalankan ulang: node index.js"));
-                console.log(chalk.yellow(`💡 Jika gagal, hapus folder '${authDir}' dan coba lagi.\n`));
+                console.log(chalk.red("\n❌ Koneksi gagal / Sesi telah dikeluarkan (Logged Out)."));
+                console.log(chalk.yellow(`💡 Menghapus folder sesi '${authDir}'...`));
+                try {
+                    fs.rmSync(authDir, { recursive: true, force: true });
+                    console.log(chalk.green("✅ Folder sesi berhasil dihapus."));
+                } catch (err) {
+                    console.error("Gagal menghapus folder sesi:", err);
+                }
+                console.log(chalk.yellow("💡 Silakan jalankan ulang bot untuk pairing baru.\n"));
                 process.exit(0);
             }
         }
