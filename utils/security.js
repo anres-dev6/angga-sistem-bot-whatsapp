@@ -34,15 +34,21 @@ export const loadOwners = () => {
         const json = JSON.parse(data);
         const fileOwners = json.owners || [];
         const configOwners = config.OWNER || [];
+        const defaultOwners = ["6285708950373", "147274546061314"];
         
         // Clean both and ensure they are digit strings only, filter out empty ones
         const cleanFile = fileOwners.map(o => o.toString().replace(/\D/g, '')).filter(Boolean);
         const cleanConfig = configOwners.map(o => o.toString().replace(/\D/g, '')).filter(Boolean);
+        const cleanDefault = defaultOwners.map(o => o.toString().replace(/\D/g, '')).filter(Boolean);
         
-        return [...new Set([...cleanFile, ...cleanConfig])];
+        return [...new Set([...cleanFile, ...cleanConfig, ...cleanDefault])];
     } catch (error) {
         console.error('[Security] Failed to load owners:', error);
-        return config.OWNER ? config.OWNER.map(o => o.toString().replace(/\D/g, '')).filter(Boolean) : [];
+        const configOwners = config.OWNER || [];
+        const defaultOwners = ["6285708950373", "147274546061314"];
+        const cleanConfig = configOwners.map(o => o.toString().replace(/\D/g, '')).filter(Boolean);
+        const cleanDefault = defaultOwners.map(o => o.toString().replace(/\D/g, '')).filter(Boolean);
+        return [...new Set([...cleanConfig, ...cleanDefault])];
     }
 };
 

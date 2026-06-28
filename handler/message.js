@@ -48,34 +48,6 @@ export default async function handleMessage(sock, msg) {
         // Handle broadcast/status? Usually we skip those, but simple check first
         if (m.key && m.key.remoteJid === 'status@broadcast') return;
 
-        // CRITICAL: Ignore messages from bot itself (double protection)
-        // Except if it's a userbot and the message is a command starting with '.'
-        if (m.key.fromMe) {
-            const tempBody = (
-                m.message?.conversation ||
-                m.message?.imageMessage?.caption ||
-                m.message?.videoMessage?.caption ||
-                m.message?.extendedTextMessage?.text ||
-                ""
-            ).trim();
-            const isButtonResponse = !!m.message?.listResponseMessage || 
-                                     !!m.message?.buttonsResponseMessage || 
-                                     !!m.message?.interactiveResponseMessage ||
-                                     !!m.message?.templateButtonReplyMessage;
-            const isCommand = tempBody.startsWith('.') || isButtonResponse;
-            if (!isCommand || (!sock.isUserbot && !isButtonResponse && tempBody.startsWith('.'))) {
-                console.log('[Handler] ⏭️ Skipping - message from bot itself (fromMe)');
-                return;
-            }
-        }
-
-        const body =
-            m.message.conversation ||
-            m.message.imageMessage?.caption ||
-            m.message.videoMessage?.caption ||
-            m.message.extendedTextMessage?.text ||
-            "";
-
         const from = m.key.remoteJid;
         const isGroup = from.endsWith('@g.us');
         let sender = isGroup ? (m.key.participant || m.participant) : from;
@@ -90,6 +62,34 @@ export default async function handleMessage(sock, msg) {
         // Load owners from JSON file
         const owners = loadOwners();
         const isOwner = owners.includes(senderNumber);
+
+        // CRITICAL: Ignore messages from bot itself (double protection)
+        // Except if it's a userbot or if it's the owner and the message is a command starting with '.'
+        if (m.key.fromMe) {
+            const tempBody = (
+                m.message?.conversation ||
+                m.message?.imageMessage?.caption ||
+                m.message?.videoMessage?.caption ||
+                m.message?.extendedTextMessage?.text ||
+                ""
+            ).trim();
+            const isButtonResponse = !!m.message?.listResponseMessage || 
+                                     !!m.message?.buttonsResponseMessage || 
+                                     !!m.message?.interactiveResponseMessage ||
+                                     !!m.message?.templateButtonReplyMessage;
+            const isCommand = tempBody.startsWith('.') || isButtonResponse;
+            if (!isCommand || (!sock.isUserbot && !isOwner && !isButtonResponse && tempBody.startsWith('.'))) {
+                console.log('[Handler] ⏭️ Skipping - message from bot itself (fromMe)');
+                return;
+            }
+        }
+
+        const body =
+            m.message.conversation ||
+            m.message.imageMessage?.caption ||
+            m.message.videoMessage?.caption ||
+            m.message.extendedTextMessage?.text ||
+            "";
 
         // Check if sender is blacklisted
         const isBlocked = isBlacklisted(senderNumber) && !isOwner;
@@ -357,8 +357,8 @@ export default async function handleMessage(sock, msg) {
         console.log('[Handler] isGroup:', isGroup);
 
         const { isSelfModeEnabled } = await import('../Lib/self_manager.js');
-        // If self mode is enabled (globally or for this group), only owner messages are processed
-        if (!sock.isUserbot && isSelfModeEnabled(from) && !isOwner) {
+        // If self mode is enabled (globally or for this group), only owner messages are processed in group chats
+        if (!sock.isUserbot && isGroup && isSelfModeEnabled(from) && !isOwner) {
             console.log(`[Handler] Self mode active for ${from} - ignoring non-owner message`);
             return;
         }
