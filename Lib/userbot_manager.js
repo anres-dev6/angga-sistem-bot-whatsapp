@@ -569,7 +569,7 @@ export async function handleDelete(sock, m) {
 // Connect and bootstrap userbot instance
 export async function startUserbotConnection(userbotInfo, mainSock = null) {
     const { number, features, gl, owner } = userbotInfo;
-    const sessionDir = `./sessions/${number}`;
+    const sessionDir = `./sessions/userbots/${number}`;
 
     console.log(chalk.cyan(`[Userbot Manager] Starting userbot session for ${number}...`));
 
@@ -741,7 +741,7 @@ export async function initUserbots(mainSock) {
     let count = 0;
 
     for (const userbot of userbots) {
-        const sessionDir = `./sessions/${userbot.number}`;
+        const sessionDir = `./sessions/userbots/${userbot.number}`;
         const hasSession = fs.existsSync(path.join(sessionDir, 'creds.json'));
         if (userbot.paired || hasSession) {
             try {
@@ -861,7 +861,7 @@ export async function removeUserbot(number) {
     saveUserbots(db);
 
     // Delete session files
-    const sessionDir = `./sessions/${fullNumber}`;
+    const sessionDir = `./sessions/userbots/${fullNumber}`;
     if (fs.existsSync(sessionDir)) {
         try {
             fs.rmSync(sessionDir, { recursive: true, force: true });

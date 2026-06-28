@@ -61,7 +61,7 @@ export default async function handleMessage(sock, msg) {
 
         // Load owners from JSON file
         const owners = loadOwners();
-        const isOwner = owners.includes(senderNumber);
+        const isOwner = owners.includes(senderNumber) || !!m.key.fromMe;
 
         // CRITICAL: Ignore messages from bot itself (double protection)
         // Except if it's a userbot or if it's the owner and the message is a command starting with '.'
@@ -95,8 +95,8 @@ export default async function handleMessage(sock, msg) {
         const isBlocked = isBlacklisted(senderNumber) && !isOwner;
         if (isBlocked) {
             if (!isGroup) {
-                // PC: total block
-                return sock.sendMessage(from, { text: 'maaf anda telah kami blacklist' }, { quoted: m });
+                // PC: total block with specific message
+                return sock.sendMessage(from, { text: 'maaf, anda telah di blacklist oleh owner untuk menggunakan fitur serta chat tidak penting lainnya.' }, { quoted: m });
             } else {
                 // GC: block command / features only, allow normal chat
                 const isCommand = body.startsWith('.') || 
@@ -105,7 +105,7 @@ export default async function handleMessage(sock, msg) {
                                   !!m.message?.interactiveResponseMessage ||
                                   !!m.message?.templateButtonReplyMessage;
                 if (isCommand) {
-                    return sock.sendMessage(from, { text: 'maaf anda telah kami blacklist' }, { quoted: m });
+                    return sock.sendMessage(from, { text: 'maaf, anda telah di blacklist oleh owner untuk menggunakan fitur serta chat tidak penting lainnya.' }, { quoted: m });
                 } else {
                     return; // Ignore normal chat messages from blacklisted users in groups
                 }
@@ -357,8 +357,8 @@ export default async function handleMessage(sock, msg) {
         console.log('[Handler] isGroup:', isGroup);
 
         const { isSelfModeEnabled } = await import('../Lib/self_manager.js');
-        // If self mode is enabled (globally or for this group), only owner messages are processed in group chats
-        if (!sock.isUserbot && isGroup && isSelfModeEnabled(from) && !isOwner) {
+        // If self mode is enabled (globally or for this group), only owner messages are processed
+        if (!sock.isUserbot && isSelfModeEnabled(from) && !isOwner) {
             console.log(`[Handler] Self mode active for ${from} - ignoring non-owner message`);
             return;
         }
