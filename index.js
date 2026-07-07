@@ -9,6 +9,7 @@ import P from "pino";
 import chalk from "chalk";
 import readline from "readline";
 import fs from "fs";
+import path from "path";
 import handleMessage from "./handler/message.js";
 import handleGroupParticipantsUpdate from "./handler/group.js";
 import { setupYtdlp } from "./utils/ytdlpSetup.js";
