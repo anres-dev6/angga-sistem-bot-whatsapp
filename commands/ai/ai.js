@@ -11,8 +11,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 if (!OPENROUTER_API_KEY) {
-    console.error("❌ Error: OPENROUTER_API_KEY is not defined in the environment variables!");
-    process.exit(1);
+    console.warn("⚠️ Warning: OPENROUTER_API_KEY is not defined in the environment variables. The AI command will not work until it is set.");
 }
 
 
@@ -41,6 +40,13 @@ export default {
         const from = msg.key.remoteJid;
         const userPrompt = args.join(" ").trim();
 
+        const apiKey = process.env.OPENROUTER_API_KEY;
+        if (!apiKey) {
+            return sock.sendMessage(from, {
+                text: "❌ Error: Fitur AI tidak dapat digunakan karena OPENROUTER_API_KEY belum dikonfigurasi di environment variables atau Railway dashboard."
+            }, { quoted: msg });
+        }
+
         if (!userPrompt) {
             return sock.sendMessage(from, {
                 text: "❌ Matamu salah format, Cok! Ketik ngene loh: .ai dino iki udan ra cok?"
@@ -53,7 +59,7 @@ export default {
             const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 headers: {
-                    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                    "Authorization": `Bearer ${apiKey}`,
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
