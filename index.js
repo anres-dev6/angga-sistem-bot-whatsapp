@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import "./env.js";
 import "./utils/fontSetupInit.js";
 import {
     makeWASocket,
