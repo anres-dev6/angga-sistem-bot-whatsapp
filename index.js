@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import "./utils/fontSetupInit.js";
 import {
     makeWASocket,
@@ -18,6 +19,18 @@ import "./Lib/autodl_manager.js"; // Initialize AutoDL state on startup
 
 // Flag to prevent restart loop during pairing
 let isPairing = false;
+let isShuttingDown = false;
+
+// Handle process shutdown signals gracefully to avoid auth conflict/deletion
+const handleShutdown = (signal) => {
+    console.log(chalk.yellow(`\n⚠️  Received ${signal}. Setting shutdown flag to true...`));
+    isShuttingDown = true;
+    process.exit(0);
+};
+
+process.once("SIGINT", () => handleShutdown("SIGINT"));
+process.once("SIGTERM", () => handleShutdown("SIGTERM"));
+process.once("SIGUSR2", () => handleShutdown("SIGUSR2"));
 
 // ================== (2) & (3) Sudah Digabung di Fungsi Ini ==================
 async function ask(text) {
@@ -91,6 +104,11 @@ async function startBot() {
                 console.error('[Userbot] Import initUserbots failed:', err);
             }
         } else if (connection === "close") {
+            if (isShuttingDown) {
+                console.log(chalk.yellow("🔌 Connection closed due to process shutdown/restart. Skipping reconnection & session cleanup."));
+                return;
+            }
+
             const shouldReconnect = (update.lastDisconnect?.error)?.output?.statusCode !== 401;
             const errorReason = update.lastDisconnect?.error;
 
