@@ -1,17 +1,9 @@
-import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import config from '../../config.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_API_KEY = config.OPENROUTER_API_KEY;
 
 if (!OPENROUTER_API_KEY) {
-    console.warn("⚠️ Warning: OPENROUTER_API_KEY is not defined in the environment variables. The AI command will not work until it is set.");
+    console.warn("⚠️ Warning: OPENROUTER_API_KEY is not defined in config.js or environment variables. The AI command will not work until it is set.");
 }
 
 
@@ -40,10 +32,10 @@ export default {
         const from = msg.key.remoteJid;
         const userPrompt = args.join(" ").trim();
 
-        const apiKey = process.env.OPENROUTER_API_KEY;
+        const apiKey = config.OPENROUTER_API_KEY;
         if (!apiKey) {
             return sock.sendMessage(from, {
-                text: "❌ Error: Fitur AI tidak dapat digunakan karena OPENROUTER_API_KEY belum dikonfigurasi di environment variables atau Railway dashboard."
+                text: "❌ Error: Fitur AI tidak dapat digunakan karena OPENROUTER_API_KEY belum dikonfigurasi di environment variables, config.js, atau Railway dashboard."
             }, { quoted: msg });
         }
 
@@ -76,7 +68,7 @@ export default {
                     ],
                     max_tokens: 2048
                 }),
-                timeout: 30000
+                signal: AbortSignal.timeout(30000)
             });
 
             if (!response.ok) {
@@ -99,9 +91,9 @@ export default {
             await sock.sendMessage(from, { react: { text: "✅", key: msg.key } });
 
         } catch (err) {
-            console.error("[AI] Error:", err.message);
+            console.error("[AI] Error:", err);
 
-            const errorMessage = "❌ Jancok servere ngadat, Cok! Sik ta lah, engko ae baleni maneh, jek error iki API-ne.";
+            const errorMessage = `❌ Jancok servere ngadat, Cok! Sik ta lah, engko ae baleni maneh, jek error iki API-ne.\n\n⚠️ *Error:* ${err.message || err}`;
             
             await sock.sendMessage(from, { text: errorMessage }, { quoted: msg });
             await sock.sendMessage(from, { react: { text: "❌", key: msg.key } });

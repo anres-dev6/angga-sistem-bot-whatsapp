@@ -22,6 +22,7 @@ const CACHE_DIRS = [
 // In-memory registry of active userbot sockets
 global.userbotSockets = global.userbotSockets || new Map();
 global.groupMetadataCache = global.groupMetadataCache || new Map();
+const userbot401Counts = new Map();
 
 // Helper to ensure database and cache directories exist
 function initStorage() {
@@ -601,6 +602,7 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
 
             if (connection === "open") {
                 console.log(chalk.green(`[Userbot Manager] Userbot +${number} connected successfully ✔️`));
+                userbot401Counts.set(number, 0); // Reset 401 counter
                 
                 // Update pairing status in database
                 const db = loadUserbots();
@@ -639,34 +641,56 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
                     console.log(chalk.yellow(`[Userbot Manager] Reconnecting userbot +${number}...`));
                     setTimeout(() => startUserbotConnection(userbotInfo, mainSock), 5000);
                 } else {
-                    console.log(chalk.red(`[Userbot Manager] Userbot +${number} credentials cleared or unauthorized. Disabling bot.`));
-                    
-                    // Mark as unpaired
-                    const db = loadUserbots();
-                    const idx = db.findIndex(b => b.number === number);
-                    if (idx > -1) {
-                        db[idx].paired = false;
-                        saveUserbots(db);
-                    }
+                    const currentCount = (userbot401Counts.get(number) || 0) + 1;
+                    userbot401Counts.set(number, currentCount);
 
-                    global.userbotSockets.delete(number);
+                    console.log(chalk.yellow(`[Userbot Manager] Userbot +${number} connection closed with 401. Attempt ${currentCount}/5`));
 
-                    // Notify main owner of disconnection
-                    if (mainSock) {
-                        try {
-                            const owners = db[idx]?.owner ? [db[idx].owner] : [];
-                            const jid = owners[0] ? `${owners[0]}@s.whatsapp.net` : mainSock.user.id.split(':')[0] + '@s.whatsapp.net';
-                            await mainSock.sendMessage(jid, {
-                                text: `❌ *BOT DISCONNECTED*\nNomor: +${number}\nSebab: Sesi terputus (unauthorized)`
-                            });
-                        } catch (e) {
-                            console.error(e);
+                    if (currentCount < 5) {
+                        console.log(chalk.yellow(`[Userbot Manager] Retrying connection for userbot +${number} in 15 seconds without disabling...`));
+                        setTimeout(() => startUserbotConnection(userbotInfo, mainSock), 15000);
+                    } else {
+                        console.log(chalk.red(`[Userbot Manager] Userbot +${number} credentials cleared or unauthorized after 5 attempts. Disabling bot and deleting session files.`));
+                        userbot401Counts.set(number, 0); // Reset counter
+                        
+                        // Mark as unpaired
+                        const db = loadUserbots();
+                        const idx = db.findIndex(b => b.number === number);
+                        if (idx > -1) {
+                            db[idx].paired = false;
+                            saveUserbots(db);
                         }
-                    }
 
-                    if (!resolved) {
-                        resolved = true;
-                        reject(new Error("Connection unauthorized"));
+                        global.userbotSockets.delete(number);
+
+                        // Delete session files
+                        const sessionDir = `./sessions/userbots/${number}`;
+                        if (fs.existsSync(sessionDir)) {
+                            try {
+                                fs.rmSync(sessionDir, { recursive: true, force: true });
+                                console.log(`[Userbot Manager] Deleted session directory: ${sessionDir}`);
+                            } catch (e) {
+                                console.error(`[Userbot Manager] Failed to delete session dir ${sessionDir}:`, e.message);
+                            }
+                        }
+
+                        // Notify main owner of disconnection
+                        if (mainSock) {
+                            try {
+                                const owners = db[idx]?.owner ? [db[idx].owner] : [];
+                                const jid = owners[0] ? `${owners[0]}@s.whatsapp.net` : mainSock.user.id.split(':')[0] + '@s.whatsapp.net';
+                                await mainSock.sendMessage(jid, {
+                                    text: `❌ *BOT DISCONNECTED*\nNomor: +${number}\nSebab: Sesi terputus (unauthorized)`
+                                });
+                            } catch (e) {
+                                console.error(e);
+                            }
+                        }
+
+                        if (!resolved) {
+                            resolved = true;
+                            reject(new Error("Connection unauthorized"));
+                        }
                     }
                 }
             }
@@ -759,6 +783,14 @@ export async function initUserbots(mainSock) {
 export async function addUserbot(number, features, ownerJid, mainSock) {
     const cleanedNumber = number.replace(/\D/g, '');
     const ownerNumber = ownerJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+
+    // Prevent adding the main bot's number as a userbot to avoid session conflict
+    if (mainSock && mainSock.user) {
+        const mainNumber = mainSock.user.id.split(':')[0].split('@')[0].replace(/\D/g, '');
+        if (cleanedNumber === mainNumber) {
+            throw new Error(`Tidak dapat menambahkan nomor bot utama (+${cleanedNumber}) sebagai userbot.`);
+        }
+    }
 
     const db = loadUserbots();
     let userbot = db.find(b => b.number === cleanedNumber);

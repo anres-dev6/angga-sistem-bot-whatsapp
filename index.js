@@ -20,6 +20,7 @@ import "./Lib/autodl_manager.js"; // Initialize AutoDL state on startup
 // Flag to prevent restart loop during pairing
 let isPairing = false;
 let isShuttingDown = false;
+let consecutive401Count = 0;
 
 // Handle process shutdown signals gracefully to avoid auth conflict/deletion
 const handleShutdown = (signal) => {
@@ -80,6 +81,7 @@ async function startBot() {
         if (connection === "open") {
             console.log(chalk.green("Bot berhasil connect ✔️"));
             isPairing = false; // Reset flag
+            consecutive401Count = 0; // Reset 401 counter
             startReminderScheduler(sock);
             
             // Load and initialize active confess sessions from disk
@@ -109,8 +111,9 @@ async function startBot() {
                 return;
             }
 
-            const shouldReconnect = (update.lastDisconnect?.error)?.output?.statusCode !== 401;
             const errorReason = update.lastDisconnect?.error;
+            const statusCode = errorReason?.output?.statusCode;
+            const shouldReconnect = statusCode !== 401;
 
             console.error(chalk.red("⚠️  Connection Closed:"), errorReason);
 
@@ -119,29 +122,38 @@ async function startBot() {
                 console.log(chalk.red("Koneksi putus, mencoba lagi..."));
                 setTimeout(() => startBot(), 3000);
             } else {
-                console.log(chalk.red("\n❌ Koneksi gagal / Sesi telah dikeluarkan (Logged Out)."));
-                console.log(chalk.yellow(`💡 Menghapus file sesi di '${authDir}'...`));
-                try {
-                    if (fs.existsSync(authDir)) {
-                        const files = fs.readdirSync(authDir);
-                        for (const file of files) {
-                            if (file !== 'blacklist.json' && file !== 'self_mode.json') {
-                                const filePath = path.join(authDir, file);
-                                const stat = fs.statSync(filePath);
-                                if (stat.isDirectory()) {
-                                    fs.rmSync(filePath, { recursive: true, force: true });
-                                } else {
-                                    fs.unlinkSync(filePath);
+                consecutive401Count++;
+                console.log(chalk.red(`\n❌ Koneksi gagal / Sesi telah dikeluarkan (Logged Out) atau konflik sesi (401). Percobaan ke-${consecutive401Count}`));
+
+                if (consecutive401Count < 5) {
+                    console.log(chalk.yellow(`💡 Menjaga file sesi. Mencoba kembali dalam 10 detik...`));
+                    setTimeout(() => startBot(), 10000);
+                } else {
+                    console.log(chalk.red(`\n❌ Sesi telah gagal 401 sebanyak 5 kali berturut-turut. Mengasumsikan Logout permanen.`));
+                    console.log(chalk.yellow(`💡 Menghapus file sesi di '${authDir}'...`));
+                    try {
+                        if (fs.existsSync(authDir)) {
+                            const files = fs.readdirSync(authDir);
+                            for (const file of files) {
+                                if (file !== 'blacklist.json' && file !== 'self_mode.json') {
+                                    const filePath = path.join(authDir, file);
+                                    const stat = fs.statSync(filePath);
+                                    if (stat.isDirectory()) {
+                                        fs.rmSync(filePath, { recursive: true, force: true });
+                                    } else {
+                                        fs.unlinkSync(filePath);
+                                    }
                                 }
                             }
                         }
+                        console.log(chalk.green("✅ File sesi berhasil dihapus."));
+                    } catch (err) {
+                        console.error("Gagal menghapus folder sesi:", err);
                     }
-                    console.log(chalk.green("✅ File sesi berhasil dihapus."));
-                } catch (err) {
-                    console.error("Gagal menghapus folder sesi:", err);
+                    console.log(chalk.yellow("💡 Silakan jalankan ulang bot untuk pairing baru.\n"));
+                    consecutive401Count = 0; // Reset counter
+                    process.exit(0);
                 }
-                console.log(chalk.yellow("💡 Silakan jalankan ulang bot untuk pairing baru.\n"));
-                process.exit(0);
             }
         }
     });
