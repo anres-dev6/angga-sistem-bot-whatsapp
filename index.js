@@ -2,9 +2,10 @@ import "./env.js";
 import "./utils/fontSetupInit.js";
 import {
     makeWASocket,
-    useMultiFileAuthState,
-    fetchLatestBaileysVersion
+    fetchLatestBaileysVersion,
+    DisconnectReason
 } from "baileys";
+import { useMultiFileAuthStateSync } from "./utils/authSync.js";
 
 import P from "pino";
 import chalk from "chalk";
@@ -54,9 +55,9 @@ async function startBot() {
     // Setup yt-dlp binary
     global.ytdlpPath = await setupYtdlp();
 
-    // ============ BAGIAN 2: Auth State yang bener =============
+    // ============ BAGIAN 2: Auth State yang bener (Synchronous) =============
     const authDir = process.env.AUTH_DIR || './auth';
-    const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    const { state, saveCreds } = useMultiFileAuthStateSync(authDir);
     // ===========================================================
 
     const { version } = await fetchLatestBaileysVersion();
@@ -113,23 +114,24 @@ async function startBot() {
 
             const errorReason = update.lastDisconnect?.error;
             const statusCode = errorReason?.output?.statusCode;
-            const shouldReconnect = statusCode !== 401;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-            console.error(chalk.red("⚠️  Connection Closed:"), errorReason);
+            console.error(chalk.red(`⚠️  Connection Closed (Status Code: ${statusCode}):`), errorReason);
 
-            // Don't auto-restart if it's a fatal error (like 401: logged out)
             if (shouldReconnect) {
-                console.log(chalk.red("Koneksi putus, mencoba lagi..."));
-                setTimeout(() => startBot(), 3000);
+                // If connection replaced (conflict), wait 10 seconds to let the other instance stop.
+                const delay = statusCode === DisconnectReason.connectionReplaced ? 10000 : 3000;
+                console.log(chalk.red(`Koneksi terputus. Mencoba menghubungkan kembali dalam ${delay/1000} detik...`));
+                setTimeout(() => startBot(), delay);
             } else {
                 consecutive401Count++;
-                console.log(chalk.red(`\n❌ Koneksi gagal / Sesi telah dikeluarkan (Logged Out) atau konflik sesi (401). Percobaan ke-${consecutive401Count}`));
+                console.log(chalk.red(`\n❌ Koneksi gagal / Sesi telah dikeluarkan (401). Percobaan ke-${consecutive401Count}/4`));
 
-                if (consecutive401Count < 5) {
-                    console.log(chalk.yellow(`💡 Menjaga file sesi. Mencoba kembali dalam 10 detik...`));
-                    setTimeout(() => startBot(), 10000);
+                if (consecutive401Count < 4) {
+                    console.log(chalk.yellow(`💡 Menjaga file sesi. Mencoba kembali dalam 30 detik untuk memastikan...`));
+                    setTimeout(() => startBot(), 30000);
                 } else {
-                    console.log(chalk.red(`\n❌ Sesi telah gagal 401 sebanyak 5 kali berturut-turut. Mengasumsikan Logout permanen.`));
+                    console.log(chalk.red(`\n❌ Sesi terkonfirmasi telah dikeluarkan (Logged Out) secara permanen.`));
                     console.log(chalk.yellow(`💡 Menghapus file sesi di '${authDir}'...`));
                     try {
                         if (fs.existsSync(authDir)) {

@@ -1,9 +1,10 @@
 import {
     makeWASocket,
-    useMultiFileAuthState,
     fetchLatestBaileysVersion,
-    downloadMediaMessage
+    downloadMediaMessage,
+    DisconnectReason
 } from "baileys";
+import { useMultiFileAuthStateSync } from "../utils/authSync.js";
 import P from "pino";
 import fs from "fs";
 import path from "path";
@@ -574,7 +575,7 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
 
     console.log(chalk.cyan(`[Userbot Manager] Starting userbot session for ${number}...`));
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const { state, saveCreds } = useMultiFileAuthStateSync(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
@@ -633,24 +634,25 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
 
             } else if (connection === "close") {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== 401;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
                 console.log(chalk.yellow(`[Userbot Manager] Userbot +${number} connection closed. Status Code: ${statusCode}`));
 
                 if (shouldReconnect) {
-                    console.log(chalk.yellow(`[Userbot Manager] Reconnecting userbot +${number}...`));
-                    setTimeout(() => startUserbotConnection(userbotInfo, mainSock), 5000);
+                    const delay = statusCode === DisconnectReason.connectionReplaced ? 10000 : 5000;
+                    console.log(chalk.yellow(`[Userbot Manager] Reconnecting userbot +${number} in ${delay/1000}s...`));
+                    setTimeout(() => startUserbotConnection(userbotInfo, mainSock), delay);
                 } else {
                     const currentCount = (userbot401Counts.get(number) || 0) + 1;
                     userbot401Counts.set(number, currentCount);
 
-                    console.log(chalk.yellow(`[Userbot Manager] Userbot +${number} connection closed with 401. Attempt ${currentCount}/5`));
+                    console.log(chalk.yellow(`[Userbot Manager] Userbot +${number} connection closed with 401 (logged out). Attempt ${currentCount}/4`));
 
-                    if (currentCount < 5) {
-                        console.log(chalk.yellow(`[Userbot Manager] Retrying connection for userbot +${number} in 15 seconds without disabling...`));
-                        setTimeout(() => startUserbotConnection(userbotInfo, mainSock), 15000);
+                    if (currentCount < 4) {
+                        console.log(chalk.yellow(`[Userbot Manager] Retrying connection for userbot +${number} in 30 seconds...`));
+                        setTimeout(() => startUserbotConnection(userbotInfo, mainSock), 30000);
                     } else {
-                        console.log(chalk.red(`[Userbot Manager] Userbot +${number} credentials cleared or unauthorized after 5 attempts. Disabling bot and deleting session files.`));
+                        console.log(chalk.red(`[Userbot Manager] Userbot +${number} credentials confirmed logged out. Deleting session files.`));
                         userbot401Counts.set(number, 0); // Reset counter
                         
                         // Mark as unpaired
