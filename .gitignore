@@ -4,6 +4,7 @@ package-lock.json
 assets/emojis/
 temp/
 auth/
+sessions/
 data/confess_sessions.json
 docs
 .env

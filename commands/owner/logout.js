@@ -37,7 +37,19 @@ export default {
                 console.error('[Logout] error calling sock.logout():', err.message);
             }
 
-            // 2. Clear credentials directory
+            // 2. Clear database session if configured
+            const hasDb = process.env.DATABASE_URL || process.env.MONGODB_URI || process.env.MONGO_URL || process.env.MONGODB_URL;
+            if (hasDb) {
+                try {
+                    const { clearDatabaseSession } = await import('../../utils/authDb.js');
+                    await clearDatabaseSession('main');
+                    console.log('[Logout] Database session cleared successfully.');
+                } catch (dbErr) {
+                    console.error('[Logout] Failed to clear database session:', dbErr.message);
+                }
+            }
+
+            // 3. Clear credentials directory
             const authDir = process.env.AUTH_DIR || './auth';
             console.log(`[Logout] Clearing session directory: ${authDir}`);
             if (fs.existsSync(authDir)) {

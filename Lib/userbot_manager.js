@@ -575,7 +575,22 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
 
     console.log(chalk.cyan(`[Userbot Manager] Starting userbot session for ${number}...`));
 
-    const { state, saveCreds } = useMultiFileAuthStateSync(sessionDir);
+    let authState;
+    const hasDb = process.env.DATABASE_URL || process.env.MONGODB_URI || process.env.MONGO_URL || process.env.MONGODB_URL;
+    if (hasDb) {
+        try {
+            const { getDatabaseAuthState } = await import('../utils/authDb.js');
+            authState = await getDatabaseAuthState(`userbot_${number}`);
+        } catch (dbErr) {
+            console.error(`[Userbot Manager] Failed to load database auth state for userbot ${number}, falling back:`, dbErr);
+        }
+    }
+
+    if (!authState) {
+        authState = useMultiFileAuthStateSync(sessionDir);
+    }
+
+    const { state, saveCreds } = authState;
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
@@ -664,6 +679,18 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
                         }
 
                         global.userbotSockets.delete(number);
+
+                        // Delete session database if configured
+                        const hasDb = process.env.DATABASE_URL || process.env.MONGODB_URI || process.env.MONGO_URL || process.env.MONGODB_URL;
+                        if (hasDb) {
+                            try {
+                                const { clearDatabaseSession } = await import('../utils/authDb.js');
+                                await clearDatabaseSession(`userbot_${number}`);
+                                console.log(`[Userbot Manager] Cleared session database for userbot_${number}`);
+                            } catch (e) {
+                                console.error(`[Userbot Manager] Failed to clear session database for userbot_${number}:`, e.message);
+                            }
+                        }
 
                         // Delete session files
                         const sessionDir = `./sessions/userbots/${number}`;
@@ -768,7 +795,18 @@ export async function initUserbots(mainSock) {
 
     for (const userbot of userbots) {
         const sessionDir = `./sessions/userbots/${userbot.number}`;
-        const hasSession = fs.existsSync(path.join(sessionDir, 'creds.json'));
+        let hasSession = fs.existsSync(path.join(sessionDir, 'creds.json'));
+        
+        const hasDb = process.env.DATABASE_URL || process.env.MONGODB_URI || process.env.MONGO_URL || process.env.MONGODB_URL;
+        if (!hasSession && hasDb) {
+            try {
+                const { hasDatabaseSession } = await import('../utils/authDb.js');
+                hasSession = await hasDatabaseSession(`userbot_${userbot.number}`);
+            } catch (dbErr) {
+                console.error(`[Userbot Manager] Failed to check DB session for userbot ${userbot.number}:`, dbErr);
+            }
+        }
+
         if (userbot.paired || hasSession) {
             try {
                 await startUserbotConnection(userbot, mainSock);
@@ -893,6 +931,18 @@ export async function removeUserbot(number) {
     // Remove database record
     db.splice(idx, 1);
     saveUserbots(db);
+
+    // Delete session database if configured
+    const hasDb = process.env.DATABASE_URL || process.env.MONGODB_URI || process.env.MONGO_URL || process.env.MONGODB_URL;
+    if (hasDb) {
+        try {
+            const { clearDatabaseSession } = await import('../utils/authDb.js');
+            await clearDatabaseSession(`userbot_${fullNumber}`);
+            console.log(`[Userbot Manager] Cleared session database for userbot_${fullNumber}`);
+        } catch (e) {
+            console.error(`[Userbot Manager] Failed to clear session database for userbot_${fullNumber}:`, e.message);
+        }
+    }
 
     // Delete session files
     const sessionDir = `./sessions/userbots/${fullNumber}`;

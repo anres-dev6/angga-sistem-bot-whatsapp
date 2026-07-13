@@ -12,6 +12,7 @@
     "ignore": [
         "node_modules",
         "auth",
+        "sessions",
         "logs",
         "data/owners.json"
     ],

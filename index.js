@@ -55,10 +55,26 @@ async function startBot() {
     // Setup yt-dlp binary
     global.ytdlpPath = await setupYtdlp();
 
-    // ============ BAGIAN 2: Auth State yang bener (Synchronous) =============
+    // ============ BAGIAN 2: Auth State (Database or Synchronous Local File) =============
     const authDir = process.env.AUTH_DIR || './auth';
-    const { state, saveCreds } = useMultiFileAuthStateSync(authDir);
-    // ===========================================================
+    let authState;
+    const hasDb = process.env.DATABASE_URL || process.env.MONGODB_URI || process.env.MONGO_URL || process.env.MONGODB_URL;
+    
+    if (hasDb) {
+        try {
+            const { getDatabaseAuthState } = await import('./utils/authDb.js');
+            authState = await getDatabaseAuthState('main');
+        } catch (dbErr) {
+            console.error('[AuthDB] Failed to load database auth state, falling back to local files:', dbErr);
+        }
+    }
+    
+    if (!authState) {
+        authState = useMultiFileAuthStateSync(authDir);
+    }
+    
+    const { state, saveCreds } = authState;
+    // ====================================================================================
 
     const { version } = await fetchLatestBaileysVersion();
     console.log(chalk.yellow("Using WhatsApp v" + version.join(".")));
