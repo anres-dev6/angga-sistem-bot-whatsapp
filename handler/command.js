@@ -10,6 +10,11 @@ const __dirname = path.dirname(__filename);
 export const commands = new Map();
 export const aliases = new Map();
 
+let resolveLoaded = null;
+export const commandsLoadedPromise = new Promise(resolve => {
+    resolveLoaded = resolve;
+});
+
 export async function loadCommands(commandDir) {
     // Clear existing commands to allow reload
     commands.clear();
@@ -72,6 +77,9 @@ export async function loadCommands(commandDir) {
     }
 
     console.log(chalk.green(`Loaded ${commands.size} commands`));
+    if (resolveLoaded) {
+        resolveLoaded();
+    }
 }
 
 export function getCommand(name) {

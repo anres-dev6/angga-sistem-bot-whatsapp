@@ -28,6 +28,12 @@ export default async function handleMessage(sock, msg) {
         const m = msg.messages[0];
         if (!m?.message) return;
 
+        // Wait for commands to load if they are still loading in the background
+        const { commandsLoadedPromise } = await import('./command.js');
+        if (commandsLoadedPromise) {
+            await commandsLoadedPromise;
+        }
+
         // Unwrap ephemeral and view-once message wrappers if they exist
         if (m.message.ephemeralMessage) {
             m.message = m.message.ephemeralMessage.message;
@@ -2344,6 +2350,15 @@ export default async function handleMessage(sock, msg) {
             recentSpam.push(now);
             recentSpam.lastWarning = userSpam.lastWarning;
             global.spamTracker.set(sender, recentSpam);
+        }
+
+        // --- Daily Command Limit Check (Max 50x for non-owners) ---
+        const { checkLimit } = await import('../utils/limitHelper.js');
+        const isAllowedByLimit = checkLimit(senderNumber, isOwnerForContext);
+        if (!isAllowedByLimit) {
+            return sock.sendMessage(from, { 
+                text: `❌ *Limit Tercapai:* Penggunaan bot Anda hari ini telah mencapai batas maksimal (50x).\n\n💡 Limit akan direset setiap hari secara otomatis. Owner bot memiliki akses tanpa batasan.` 
+            }, { quoted: m });
         }
 
         // 1. Owner Access
