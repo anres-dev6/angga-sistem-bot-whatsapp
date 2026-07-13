@@ -261,7 +261,10 @@ export async function getFinanceSummary() {
     const rows = response.data.values || [];
     
     let pengeluaranBulanIni = 0;
+    let pemasukanBulanIni = 0;
     let nabungBulanIni = 0;
+    let totalPemasukan = 0;
+    let totalPengeluaran = 0;
     let totalNabung = 0;
     let totalAmbilTabungan = 0;
     
@@ -271,12 +274,17 @@ export async function getFinanceSummary() {
         
         const bulan = row[1];
         const tipe = row[2];
-        // Remove Rp and separators if sheets returned formatted values, parse as number
         const nominal = parseFloat(row[4]?.toString().replace(/[^\d\-]/g, '')) || 0;
         
         if (tipe === 'Pengeluaran') {
+            totalPengeluaran += nominal;
             if (bulan === currentMonthName) {
                 pengeluaranBulanIni += nominal;
+            }
+        } else if (tipe === 'Pemasukan') {
+            totalPemasukan += nominal;
+            if (bulan === currentMonthName) {
+                pemasukanBulanIni += nominal;
             }
         } else if (tipe === 'Nabung') {
             totalNabung += nominal;
@@ -289,11 +297,14 @@ export async function getFinanceSummary() {
     }
     
     const sisaTabungan = totalNabung - totalAmbilTabungan;
+    const saldoTersedia = totalPemasukan - totalPengeluaran;
     
     return {
+        pemasukanBulanIni,
         pengeluaranBulanIni,
         nabungBulanIni,
         sisaTabungan,
+        saldoTersedia,
         currentMonthName,
         year
     };

@@ -18,7 +18,8 @@ async function getDbConnection() {
             console.log('[AuthDB] Connecting to PostgreSQL database...');
             pgPool = new Pool({
                 connectionString: process.env.DATABASE_URL,
-                ssl: process.env.DATABASE_URL.includes('sslmode=') ? undefined : { rejectUnauthorized: false }
+                ssl: process.env.DATABASE_URL.includes('sslmode=') ? undefined : { rejectUnauthorized: false },
+                connectionTimeoutMillis: 5000 // 5 seconds timeout
             });
             
             // Test connection and initialize table
@@ -50,7 +51,10 @@ async function getDbConnection() {
             const { MongoClient } = mongodb.default;
             
             console.log('[AuthDB] Connecting to MongoDB database...');
-            mongoClient = new MongoClient(mongoUrl);
+            mongoClient = new MongoClient(mongoUrl, {
+                connectTimeoutMS: 5000,           // 5 seconds timeout
+                serverSelectionTimeoutMS: 5000   // 5 seconds timeout
+            });
             await mongoClient.connect();
             mongoDb = mongoClient.db();
             

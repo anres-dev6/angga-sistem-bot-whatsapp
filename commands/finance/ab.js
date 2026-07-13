@@ -6,7 +6,7 @@ export default {
     tags: ['finance'],
     description: 'Catat pengambilan tabungan ke Google Sheets',
     access: {
-        owner: false,
+        owner: true,
         group: false,
         private: false
     },

@@ -6,7 +6,7 @@ export default {
     tags: ['finance'],
     description: 'Tampilkan rekapitulasi keuangan dan tabungan bulan ini dari Google Sheets',
     access: {
-        owner: false,
+        owner: true,
         group: false,
         private: false
     },
@@ -18,19 +18,23 @@ export default {
             
             const summary = await getFinanceSummary();
             
+            const incStr = summary.pemasukanBulanIni.toLocaleString('id-ID');
             const expStr = summary.pengeluaranBulanIni.toLocaleString('id-ID');
             const saveStr = summary.nabungBulanIni.toLocaleString('id-ID');
             const balStr = summary.sisaTabungan.toLocaleString('id-ID');
+            const availStr = summary.saldoTersedia.toLocaleString('id-ID');
             
             const text = `📊 *REKAP KEUANGAN & TABUNGAN*
 📅 Tahun: *${summary.year}*
 🗓 Bulan: *${summary.currentMonthName}*
 
+✅ *Pemasukan Bulan Ini:* Rp${incStr}
 💸 *Pengeluaran Bulan Ini:* Rp${expStr}
 💰 *Nabung Bulan Ini:* Rp${saveStr}
 
 ━━━━━━━━━━━━━━━━━━━━
 💳 *Sisa Saldo Tabungan:* Rp${balStr}
+💰 *Saldo Tersedia (Dompet):* Rp${availStr}
 
 💡 _Data direkap otomatis secara real-time dari Google Sheets._`;
 
