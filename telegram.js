@@ -7,11 +7,11 @@ import fs from "fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const token = process.env.TELEGRAM_TOKEN;
+const token = process.env.TELEGRAM_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
 const ownerUsername = process.env.TELEGRAM_OWNER_USERNAME || "";
 
 if (!token) {
-    console.warn("⚠️ [Telegram] TELEGRAM_TOKEN is missing in the environment variables. Skipping Telegram bot activation.");
+    console.warn("⚠️ [Telegram] TELEGRAM_TOKEN or TELEGRAM_BOT_TOKEN is missing in the environment variables. Skipping Telegram bot activation.");
 } else {
     console.log("[Telegram] Activating Telegram bot connector...");
     const bot = new Telegraf(token);
