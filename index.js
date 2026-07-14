@@ -271,3 +271,8 @@ async function startBot() {
 }
 
 startBot();
+
+// Start Telegram Bot in parallel inside the same process
+import("./telegram.js").catch(err => {
+    console.error("❌ Failed to start Telegram bot:", err);
+});

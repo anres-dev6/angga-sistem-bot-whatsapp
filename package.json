@@ -8,10 +8,10 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "start": "concurrently \"node index.js\" \"node telegram.js\"",
-    "dev": "concurrently \"nodemon index.js\" \"node telegram.js\"",
-    "pm2": "npx pm2 start index.js --name angga-bot && npx pm2 start telegram.js --name telegram-bot",
-    "pm2-stop": "npx pm2 stop angga-bot && npx pm2 stop telegram-bot",
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "pm2": "npx pm2 start index.js --name angga-bot",
+    "pm2-stop": "npx pm2 stop angga-bot",
     "pm2-logs": "npx pm2 logs"
   },
   "dependencies": {
