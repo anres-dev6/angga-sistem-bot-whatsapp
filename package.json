@@ -8,11 +8,11 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "pm2": "npx pm2 start index.js --name angga-bot",
-    "pm2-stop": "npx pm2 stop angga-bot",
-    "pm2-logs": "npx pm2 logs angga-bot"
+    "start": "concurrently \"node index.js\" \"node telegram.js\"",
+    "dev": "concurrently \"nodemon index.js\" \"node telegram.js\"",
+    "pm2": "npx pm2 start index.js --name angga-bot && npx pm2 start telegram.js --name telegram-bot",
+    "pm2-stop": "npx pm2 stop angga-bot && npx pm2 stop telegram-bot",
+    "pm2-logs": "npx pm2 logs"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
@@ -24,6 +24,7 @@
     "btch-downloader": "^6.0.32",
     "chalk": "^5.3.0",
     "cheerio": "^1.1.2",
+    "concurrently": "^10.0.3",
     "dotenv": "^17.4.2",
     "genius-lyrics-api": "^3.2.1",
     "googleapis": "^173.0.0",
@@ -43,6 +44,7 @@
     "qrcode-terminal": "^0.12.0",
     "ruhend-scraper": "^10.0.3",
     "sharp": "^0.34.5",
+    "telegraf": "^4.16.3",
     "ytdl-core": "^4.11.5"
   }
 }
