@@ -52,6 +52,8 @@ async function ask(text) {
 
 async function startBot() {
 
+    console.log("[Debug] Env keys:", Object.keys(process.env).filter(k => k.includes("TELEGRAM") || k.includes("TOKEN") || k.includes("PORT") || k.includes("DATABASE")));
+
     // Setup yt-dlp binary
     global.ytdlpPath = await setupYtdlp();
 
