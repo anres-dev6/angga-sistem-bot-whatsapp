@@ -683,6 +683,15 @@ export default async function handleMessage(sock, msg) {
                         if (handled) return;
                     }
 
+                    // ============================================
+                    //  WIKIPEDIA BUTTON INTERACTIVE HANDLER
+                    // ============================================
+                    if (selectedId && selectedId.startsWith('wiki_')) {
+                        const { handleWikiButton } = await import('../utils/wikiHelper.js');
+                        await handleWikiButton(sock, m, selectedId);
+                        return;
+                    }
+
                     // Extract quality and URL from ID
                     // Universal format: dl_video_720_https://...
                     // or: dl_audio_128_https://...
