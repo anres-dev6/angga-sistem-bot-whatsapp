@@ -140,27 +140,9 @@ async function startBot() {
                 console.log(chalk.red(`Koneksi terputus. Mencoba menghubungkan kembali dalam ${delay/1000} detik...`));
                 setTimeout(() => startBot(), delay);
             } else {
-                consecutive401Count++;
-                console.log(chalk.red(`\n❌ Koneksi gagal / Sesi telah dikeluarkan (401). Percobaan ke-${consecutive401Count}/4`));
-
-                if (consecutive401Count < 4) {
-                    console.log(chalk.yellow(`💡 Menjaga file sesi. Mencoba kembali dalam 30 detik untuk memastikan...`));
-                    setTimeout(() => startBot(), 30000);
-                } else {
-                    console.log(chalk.red(`\n❌ Sesi terkonfirmasi telah dikeluarkan (Logged Out) secara permanen.`));
-                    
-                    if (hasDb) {
-                        import('./utils/authDb.js').then(({ clearDatabaseSession }) => {
-                            clearDatabaseSession('main').then(() => {
-                                console.log(chalk.green("✅ Kredensial di database berhasil dibersihkan."));
-                            }).catch(dbErr => {
-                                console.error("Gagal membersihkan database auth:", dbErr);
-                            });
-                        }).catch(importErr => {
-                            console.error("Gagal mengimpor authDb.js:", importErr);
-                        });
-                    }
-
+                console.log(chalk.red(`\n❌ Sesi terkonfirmasi telah dikeluarkan (Logged Out) secara permanen.`));
+                
+                const exitProcess = () => {
                     console.log(chalk.yellow(`💡 Menghapus file sesi di '${authDir}'...`));
                     try {
                         if (fs.existsSync(authDir)) {
@@ -182,8 +164,24 @@ async function startBot() {
                         console.error("Gagal menghapus folder sesi:", err);
                     }
                     console.log(chalk.yellow("💡 Silakan jalankan ulang bot untuk pairing baru.\n"));
-                    consecutive401Count = 0; // Reset counter
                     process.exit(0);
+                };
+
+                if (hasDb) {
+                    import('./utils/authDb.js').then(({ clearDatabaseSession }) => {
+                        clearDatabaseSession('main').then(() => {
+                            console.log(chalk.green("✅ Kredensial di database berhasil dibersihkan."));
+                            exitProcess();
+                        }).catch(dbErr => {
+                            console.error("Gagal membersihkan database auth:", dbErr);
+                            exitProcess();
+                        });
+                    }).catch(importErr => {
+                        console.error("Gagal mengimpor authDb.js:", importErr);
+                        exitProcess();
+                    });
+                } else {
+                    exitProcess();
                 }
             }
         }
