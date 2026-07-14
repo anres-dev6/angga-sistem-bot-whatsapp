@@ -23,11 +23,32 @@ const bot = new Telegraf(token);
 console.log("[Telegram] Loading shared commands...");
 await loadCommands(path.join(__dirname, "commands"));
 
+// Register commands list in Telegram menu
+try {
+    const { commands } = await import("./handler/command.js");
+    const botCommands = [];
+    for (const [name, cmd] of commands.entries()) {
+        // Telegram command names must be lowercase, 1-32 chars, matching: ^[a-z0-9_]+$
+        if (/^[a-z0-9_]{1,32}$/.test(name)) {
+            botCommands.push({
+                command: name,
+                description: cmd.description ? cmd.description.substring(0, 256) : `Jalankan perintah ${name}`
+            });
+        }
+    }
+    if (botCommands.length > 0) {
+        await bot.telegram.setMyCommands(botCommands);
+        console.log(`[Telegram] Registered ${botCommands.length} commands in Telegram menu.`);
+    }
+} catch (menuErr) {
+    console.error("[Telegram] Failed to set bot commands menu:", menuErr);
+}
+
 // Handle text commands
 bot.on("text", async (ctx) => {
     try {
         const body = ctx.message.text.trim();
-        if (!body.startsWith(".")) return;
+        if (!body.startsWith("/")) return;
 
         const cmdName = body.slice(1).trim().split(" ")[0].toLowerCase();
         const args = body.trim().split(" ").slice(1);
@@ -55,7 +76,10 @@ bot.on("text", async (ctx) => {
                 
                 // 1. Text Message
                 if (content.text) {
-                    return ctx.reply(content.text);
+                    let text = content.text;
+                    // Convert WhatsApp "." prefix hints to Telegram "/" prefix hints dynamically
+                    text = text.replace(/(^|[^a-zA-Z0-9_])\.([a-zA-Z0-9_]+)/g, '$1/$2');
+                    return ctx.reply(text);
                 }
 
                 // Helper to get media source payload for Telegram
@@ -75,24 +99,26 @@ bot.on("text", async (ctx) => {
                 // 2. Image Message
                 if (content.image) {
                     const source = getMediaSource(content.image);
-                    return ctx.replyWithPhoto(source, { caption: content.caption });
+                    const caption = content.caption ? content.caption.replace(/(^|[^a-zA-Z0-9_])\.([a-zA-Z0-9_]+)/g, '$1/$2') : undefined;
+                    return ctx.replyWithPhoto(source, { caption });
                 }
 
                 // 3. Video Message
                 if (content.video) {
                     const source = getMediaSource(content.video);
-                    return ctx.replyWithVideo(source, { caption: content.caption });
+                    const caption = content.caption ? content.caption.replace(/(^|[^a-zA-Z0-9_])\.([a-zA-Z0-9_]+)/g, '$1/$2') : undefined;
+                    return ctx.replyWithVideo(source, { caption });
                 }
 
                 // 4. Document Message
                 if (content.document) {
                     const source = getMediaSource(content.document);
-                    return ctx.replyWithDocument(source, { caption: content.caption });
+                    const caption = content.caption ? content.caption.replace(/(^|[^a-zA-Z0-9_])\.([a-zA-Z0-9_]+)/g, '$1/$2') : undefined;
+                    return ctx.replyWithDocument(source, { caption });
                 }
 
                 // 5. Reaction Message
                 if (content.react) {
-                    // Send as text reaction or small text emoji reply
                     return ctx.reply(`Reaction: ${content.react.text}`);
                 }
             }
@@ -112,7 +138,7 @@ bot.on("text", async (ctx) => {
         };
 
         // Run the command
-        console.log(`[Telegram] Command run: .${cmdName} from ${senderUsername}`);
+        console.log(`[Telegram] Command run: /${cmdName} from ${senderUsername}`);
         await command.run(mockSock, mockMsg, args, { isOwner, isGroup });
 
     } catch (err) {

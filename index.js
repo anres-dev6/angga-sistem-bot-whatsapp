@@ -148,6 +148,19 @@ async function startBot() {
                     setTimeout(() => startBot(), 30000);
                 } else {
                     console.log(chalk.red(`\n❌ Sesi terkonfirmasi telah dikeluarkan (Logged Out) secara permanen.`));
+                    
+                    if (hasDb) {
+                        import('./utils/authDb.js').then(({ clearDatabaseSession }) => {
+                            clearDatabaseSession('main').then(() => {
+                                console.log(chalk.green("✅ Kredensial di database berhasil dibersihkan."));
+                            }).catch(dbErr => {
+                                console.error("Gagal membersihkan database auth:", dbErr);
+                            });
+                        }).catch(importErr => {
+                            console.error("Gagal mengimpor authDb.js:", importErr);
+                        });
+                    }
+
                     console.log(chalk.yellow(`💡 Menghapus file sesi di '${authDir}'...`));
                     try {
                         if (fs.existsSync(authDir)) {
