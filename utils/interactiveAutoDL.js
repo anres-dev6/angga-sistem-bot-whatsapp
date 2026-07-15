@@ -225,6 +225,7 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
         // 3. Jika berupa slide gambar (misal TikTok foto, Instagram post, Facebook album)
         if (result.type === 'image-slide') {
             const numImages = result.images.length;
+            console.log(`[Interactive AutoDL] Slide detected. Total images: ${numImages}, ShortID: ${shortId}`);
 
             if (numImages === 1) {
                 // Proses fotonya saja tanpa lagu jika fotonya hanya 1
@@ -234,11 +235,39 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                 });
 
                 const img = result.images[0];
-                const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
-                await sock.sendMessage(jid, {
-                    image: imagePayload,
-                    caption: result.title || `Media dari ${platformName}`
-                });
+                let imageBuffer = null;
+                try {
+                    if (Buffer.isBuffer(img)) {
+                        imageBuffer = img;
+                    } else if (typeof img === 'string') {
+                        const axios = (await import('axios')).default;
+                        console.log(`[Interactive AutoDL] Downloading single photo from: ${img}`);
+                        const res = await axios.get(img, {
+                            responseType: 'arraybuffer',
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                            },
+                            timeout: 15000
+                        });
+                        imageBuffer = Buffer.from(res.data);
+                    }
+                } catch (dlErr) {
+                    console.error('[Interactive AutoDL] Failed to download single photo buffer:', dlErr.message);
+                }
+
+                if (imageBuffer) {
+                    await sock.sendMessage(jid, {
+                        image: imageBuffer,
+                        caption: result.title || `Media dari ${platformName}`
+                    });
+                } else {
+                    // Fallback to raw URL payload if buffer download failed
+                    const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
+                    await sock.sendMessage(jid, {
+                        image: imagePayload,
+                        caption: result.title || `Media dari ${platformName}`
+                    });
+                }
 
                 // Hapus pesan progress
                 try {
@@ -247,6 +276,7 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                 return;
             } else {
                 // Slideshow mode - simpan ke cache
+                console.log(`[Interactive AutoDL] Caching slideshow with ${numImages} slides under shortId: ${shortId}`);
                 global.interactiveDlCache.set(shortId, {
                     url: url,
                     type: 'image-slide',
@@ -554,9 +584,13 @@ export async function handleInteractiveResponse(sock, m) {
         // Menangani aksi klik tombol slide (Kirim Pribadi / Kirim Sini)
         if (downloadType === 'slide') {
             const action = parts[3]; // 'private' atau 'public'
+            console.log(`[Interactive AutoDL] Slide button pressed. Action: ${action}, ShortID: ${shortId}`);
+
             const cachedEntry = global.interactiveDlCache.get(shortId);
+            console.log(`[Interactive AutoDL] Retrieved cache entry:`, cachedEntry ? { type: cachedEntry.type, imagesCount: cachedEntry.images?.length, platform: cachedEntry.platform } : null);
 
             if (!cachedEntry || cachedEntry.type !== 'image-slide') {
+                console.log(`[Interactive AutoDL] Cache entry not found or invalid type for shortId: ${shortId}`);
                 await sock.sendMessage(from, { text: "❌ Data slide sudah kedaluwarsa atau tidak ditemukan." });
                 return true;
             }
@@ -565,6 +599,8 @@ export async function handleInteractiveResponse(sock, m) {
             const isGroup = from.endsWith('@g.us');
             const sender = m.key.participant || m.participant || from;
             const targetJid = action === 'private' ? sender : from;
+
+            console.log(`[Interactive AutoDL] Target JID for delivery: ${targetJid}`);
 
             // Beri feedback pesan loading terlebih dahulu
             const infoText = action === 'private' 
@@ -576,16 +612,53 @@ export async function handleInteractiveResponse(sock, m) {
             // Kirim semua slide secara berurutan dan persis jumlahnya
             for (let i = 0; i < images.length; i++) {
                 const img = images[i];
-                const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
-                
-                await sock.sendMessage(targetJid, {
-                    image: imagePayload,
-                    caption: `Slide ${i + 1}/${images.length}`
-                });
+                let imageBuffer = null;
+
+                try {
+                    if (Buffer.isBuffer(img)) {
+                        imageBuffer = img;
+                    } else if (typeof img === 'string') {
+                        const axios = (await import('axios')).default;
+                        console.log(`[Interactive AutoDL] Fetching slide ${i + 1}/${images.length} from: ${img}`);
+                        const res = await axios.get(img, {
+                            responseType: 'arraybuffer',
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                            },
+                            timeout: 15000
+                        });
+                        imageBuffer = Buffer.from(res.data);
+                    }
+
+                    if (imageBuffer) {
+                        await sock.sendMessage(targetJid, {
+                            image: imageBuffer,
+                            caption: `Slide ${i + 1}/${images.length}`
+                        });
+                        console.log(`[Interactive AutoDL] Successfully sent slide ${i + 1}/${images.length} to ${targetJid}`);
+                    } else {
+                        throw new Error("Resolved image is neither a buffer nor a string url.");
+                    }
+                } catch (imgErr) {
+                    console.error(`[Interactive AutoDL] Failed to download or send slide ${i + 1}:`, imgErr.message);
+                    
+                    // Fallback to sending direct URL if buffer download failed
+                    try {
+                        const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
+                        await sock.sendMessage(targetJid, {
+                            image: imagePayload,
+                            caption: `Slide ${i + 1}/${images.length} (Fallback Link)`
+                        });
+                    } catch (fallbackErr) {
+                        console.error(`[Interactive AutoDL] Fallback send slide ${i + 1} also failed:`, fallbackErr.message);
+                    }
+                }
 
                 // Beri jeda kecil agar tidak spam/banned
                 await new Promise(r => setTimeout(r, 800));
             }
+
+            console.log(`[Interactive AutoDL] Finished sending all ${images.length} slides.`);
 
             // Sukses mengirim, tawarkan MP3 download jika dari tiktok
             if (cachedEntry.platform === 'tiktok') {

@@ -65,7 +65,8 @@ function createMockSock(ctx, botInfo) {
 
             // 5. Reaction Message
             if (content.react) {
-                return ctx.reply(`Reaction: ${content.react.text}`);
+                // Ignore reaction messages on Telegram to keep the chat clean
+                return;
             }
         },
         relayMessage: async (jid, message, options = {}) => {
@@ -137,6 +138,89 @@ function createMockSock(ctx, botInfo) {
 
                 return await ctx.reply(text, telegramOptions).catch(() => ctx.reply(text));
             }
+        },
+        groupMetadata: async (jid) => {
+            const chatId = parseInt(jid);
+            if (isNaN(chatId)) return { participants: [] };
+
+            try {
+                // Fetch group administrators in Telegram
+                const admins = await ctx.getChatAdministrators();
+                const participants = admins.map(admin => ({
+                    id: admin.user.id.toString() + "@s.whatsapp.net",
+                    admin: admin.status === 'creator' ? 'superadmin' : 'admin'
+                }));
+
+                // Add sender if not in admin list (as non-admin member)
+                const senderId = ctx.message?.from?.id?.toString() + "@s.whatsapp.net";
+                if (!participants.some(p => p.id === senderId)) {
+                    participants.push({ id: senderId, admin: null });
+                }
+                return { participants };
+            } catch (err) {
+                console.error("[Telegram Admin] Failed to fetch chat admins:", err.message);
+                return { participants: [] };
+            }
+        },
+        groupParticipantsUpdate: async (jid, participants, action) => {
+            const chatId = parseInt(jid);
+            if (isNaN(chatId)) return;
+
+            for (const participant of participants) {
+                const cleanIdStr = participant.split('@')[0];
+                const userId = parseInt(cleanIdStr);
+                if (isNaN(userId)) continue;
+
+                try {
+                    if (action === 'remove') {
+                        // Ban / Kick user on Telegram
+                        await ctx.banChatMember(userId);
+                        console.log(`[Telegram Admin] Successfully banned user ${userId} in chat ${chatId}`);
+                    } else if (action === 'add') {
+                        // Unban user on Telegram
+                        await ctx.unbanChatMember(userId);
+                        console.log(`[Telegram Admin] Successfully unbanned user ${userId} in chat ${chatId}`);
+                    } else if (action === 'promote') {
+                        // Promote user to admin on Telegram with standard admin powers
+                        await ctx.promoteChatMember(userId, {
+                            can_change_info: true,
+                            can_post_messages: true,
+                            can_edit_messages: true,
+                            can_delete_messages: true,
+                            can_invite_users: true,
+                            can_restrict_members: true,
+                            can_pin_messages: true,
+                            can_promote_members: false
+                        });
+                        console.log(`[Telegram Admin] Successfully promoted user ${userId} in chat ${chatId}`);
+                    } else if (action === 'demote') {
+                        // Demote user (strip admin rights) on Telegram
+                        await ctx.promoteChatMember(userId, {
+                            can_change_info: false,
+                            can_post_messages: false,
+                            can_edit_messages: false,
+                            can_delete_messages: false,
+                            can_invite_users: false,
+                            can_restrict_members: false,
+                            can_pin_messages: false,
+                            can_promote_members: false
+                        });
+                        console.log(`[Telegram Admin] Successfully demoted user ${userId} in chat ${chatId}`);
+                    }
+                } catch (err) {
+                    console.error(`[Telegram Admin] Action '${action}' failed for user ${userId}:`, err.message);
+                    throw err;
+                }
+            }
+        },
+        deleteMessage: async (jid, key) => {
+            const messageId = parseInt(key.id);
+            if (!isNaN(messageId)) {
+                await ctx.deleteMessage(messageId).catch(err => {
+                    console.error("[Telegram Admin] Failed to delete message:", err.message);
+                    throw err;
+                });
+            }
         }
     };
 }
@@ -174,25 +258,45 @@ if (!token) {
             if (command.access?.owner && !isOwner) {
                 return ctx.reply("❌ Perintah ini hanya dapat digunakan oleh Owner bot.");
             }
+            if (command.access?.group && !isGroup) {
+                return ctx.reply("❌ Perintah ini hanya dapat digunakan di dalam grup.");
+            }
+            if (command.access?.private && isGroup) {
+                return ctx.reply("❌ Perintah ini hanya dapat digunakan di chat pribadi (private chat).");
+            }
 
             const mockSock = createMockSock(ctx, bot.botInfo);
 
-            // Mock Baileys message object
+            // Mock Baileys message object with contextual reply support
             const mockMsg = {
                 key: {
                     remoteJid: from,
                     fromMe: false,
-                    id: ctx.message.message_id.toString()
+                    id: ctx.message.message_id.toString(),
+                    participant: ctx.message.from.id.toString() + "@s.whatsapp.net"
                 },
                 pushName: ctx.message.from.first_name || "Telegram User",
                 message: {
-                    conversation: body
+                    extendedTextMessage: {
+                        text: body,
+                        contextInfo: ctx.message.reply_to_message ? {
+                            stanzaId: ctx.message.reply_to_message.message_id.toString(),
+                            participant: ctx.message.reply_to_message.from.id.toString() + "@s.whatsapp.net",
+                            quotedMessage: {
+                                conversation: ctx.message.reply_to_message.text || ""
+                            }
+                        } : undefined
+                    }
                 }
             };
 
             // Run the command
             console.log(`[Telegram] Command run: /${cmdName} from ${senderUsername}`);
-            await command.run(mockSock, mockMsg, args, { isOwner, isGroup });
+            await command.run(mockSock, mockMsg, args, { 
+                sender: ctx.message.from.id.toString() + "@s.whatsapp.net", 
+                isOwner, 
+                isGroup 
+            });
 
         } catch (err) {
             console.error("[Telegram] Error running command:", err);
@@ -200,7 +304,7 @@ if (!token) {
         }
     });
 
-    // Handle callback query events (Interactive button clicks)
+    // Handle callback query events (Interactive inline button clicks)
     bot.on("callback_query", async (ctx) => {
         try {
             const selectedId = ctx.callbackQuery.data;
