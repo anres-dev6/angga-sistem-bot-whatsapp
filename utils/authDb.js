@@ -241,3 +241,11 @@ export async function clearDatabaseSession(sessionId) {
     
     return false;
 }
+
+export async function getSessionData(sessionId, fileId) {
+    return await readDbData(sessionId, fileId);
+}
+
+export async function setSessionData(sessionId, fileId, data) {
+    return await writeDbData(sessionId, fileId, data);
+}

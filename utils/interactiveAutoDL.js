@@ -222,34 +222,82 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
             timestamp: Date.now()
         });
 
-        // 3. Jika berupa slide gambar (misal TikTok foto)
+        // 3. Jika berupa slide gambar (misal TikTok foto, Instagram post, Facebook album)
         if (result.type === 'image-slide') {
-            await sock.sendMessage(jid, {
-                text: `✅ Terdeteksi ${result.images.length} foto/slide. Mengirim ke chat...`,
-                edit: progressMsg.key
-            });
+            const numImages = result.images.length;
 
-            const isGroup = jid.endsWith('@g.us');
-            const sender = isGroup ? (m.key.participant || m.participant) : jid;
-            const target = sock.isUserbot ? sender : jid;
-
-            for (let i = 0; i < result.images.length; i++) {
-                const img = result.images[i];
-                const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
-                await sock.sendMessage(target, {
-                    image: imagePayload,
-                    caption: `Slide ${i + 1}/${result.images.length}`
+            if (numImages === 1) {
+                // Proses fotonya saja tanpa lagu jika fotonya hanya 1
+                await sock.sendMessage(jid, {
+                    text: `✅ Terdeteksi 1 foto. Mengirim ke chat...`,
+                    edit: progressMsg.key
                 });
-            }
 
-            // Kirim tombol MP3
-            await sendMp3ButtonOnly(sock, jid, shortId, platform);
-            
-            // Hapus pesan progress
-            try {
-                await sock.sendMessage(jid, { delete: progressMsg.key });
-            } catch {}
-            return;
+                const img = result.images[0];
+                const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
+                await sock.sendMessage(jid, {
+                    image: imagePayload,
+                    caption: result.title || `Media dari ${platformName}`
+                });
+
+                // Hapus pesan progress
+                try {
+                    await sock.sendMessage(jid, { delete: progressMsg.key });
+                } catch {}
+                return;
+            } else {
+                // Slideshow mode - simpan ke cache
+                global.interactiveDlCache.set(shortId, {
+                    url: url,
+                    type: 'image-slide',
+                    images: result.images,
+                    platform: platform,
+                    title: result.title || ''
+                });
+
+                // Kirim pesan dengan 2 tombol
+                const text = `📊 *AutoDL - Slideshow Terdeteksi*\n\n` +
+                             `📱 Platform: *${platformName}*\n` +
+                             `🖼️ Jumlah: *${numImages} slide*\n\n` +
+                             `Silakan pilih metode pengiriman media di bawah ini:`;
+
+                const buttons = [
+                    {
+                        name: "quick_reply",
+                        buttonParamsJson: JSON.stringify({
+                            display_text: "📥 Kirim Ke Chat Ini",
+                            id: `iadl_${shortId}_slide_public`
+                        })
+                    },
+                    {
+                        name: "quick_reply",
+                        buttonParamsJson: JSON.stringify({
+                            display_text: "👤 Kirim Ke Private Chat",
+                            id: `iadl_${shortId}_slide_private`
+                        })
+                    }
+                ];
+
+                const buttonsMsg = generateWAMessageFromContent(jid, {
+                    viewOnceMessage: {
+                        message: {
+                            interactiveMessage: {
+                                body: { text: text },
+                                footer: { text: "Interactive Auto Downloader" },
+                                nativeFlowMessage: { buttons: buttons }
+                            }
+                        }
+                    }
+                }, {});
+
+                await sock.relayMessage(jid, buttonsMsg.message, { messageId: buttonsMsg.key.id });
+
+                // Hapus pesan progress
+                try {
+                    await sock.sendMessage(jid, { delete: progressMsg.key });
+                } catch {}
+                return;
+            }
         }
 
         // 4. Jika berupa video
@@ -500,6 +548,49 @@ export async function handleInteractiveResponse(sock, m) {
 
         if (!url) {
             await sock.sendMessage(from, { text: "❌ Tautan download sudah kedaluwarsa. Silakan kirim ulang tautan Anda." });
+            return true;
+        }
+
+        // Menangani aksi klik tombol slide (Kirim Pribadi / Kirim Sini)
+        if (downloadType === 'slide') {
+            const action = parts[3]; // 'private' atau 'public'
+            const cachedEntry = global.interactiveDlCache.get(shortId);
+
+            if (!cachedEntry || cachedEntry.type !== 'image-slide') {
+                await sock.sendMessage(from, { text: "❌ Data slide sudah kedaluwarsa atau tidak ditemukan." });
+                return true;
+            }
+
+            const images = cachedEntry.images;
+            const isGroup = from.endsWith('@g.us');
+            const sender = m.key.participant || m.participant || from;
+            const targetJid = action === 'private' ? sender : from;
+
+            // Beri feedback pesan loading terlebih dahulu
+            const infoText = action === 'private' 
+                ? `⏳ Mengirim *${images.length} slide* ke Private Chat Anda...`
+                : `⏳ Mengirim *${images.length} slide* ke chat ini...`;
+            
+            await sock.sendMessage(from, { text: infoText }, { quoted: m });
+
+            // Kirim semua slide secara berurutan dan persis jumlahnya
+            for (let i = 0; i < images.length; i++) {
+                const img = images[i];
+                const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
+                
+                await sock.sendMessage(targetJid, {
+                    image: imagePayload,
+                    caption: `Slide ${i + 1}/${images.length}`
+                });
+
+                // Beri jeda kecil agar tidak spam/banned
+                await new Promise(r => setTimeout(r, 800));
+            }
+
+            // Sukses mengirim, tawarkan MP3 download jika dari tiktok
+            if (cachedEntry.platform === 'tiktok') {
+                await sendMp3ButtonOnly(sock, from, shortId, cachedEntry.platform);
+            }
             return true;
         }
 

@@ -162,42 +162,43 @@ export async function handleWikiButton(sock, m, selectedId) {
     }
 
     const contextInfo = m.message?.interactiveResponseMessage?.contextInfo;
-    if (!contextInfo?.stanzaId) {
-        console.error('[Wiki Helper] Context info stanza ID not found for button click.');
-        return;
-    }
+    const stanzaId = contextInfo?.stanzaId;
 
-    const editKey = {
+    const editKey = stanzaId ? {
         remoteJid: from,
-        id: contextInfo.stanzaId,
+        id: stanzaId,
         fromMe: true
-    };
+    } : null;
 
     try {
         if (action === 'prev') {
             const newOffset = Math.max(0, session.offset - 5);
-            await searchWikipedia(sock, from, session.query, newOffset, editKey);
+            if (editKey) {
+                await searchWikipedia(sock, from, session.query, newOffset, editKey).catch(async (e) => {
+                    console.log('[Wiki Helper] Edit page failed, sending new message:', e.message);
+                    await searchWikipedia(sock, from, session.query, newOffset, null);
+                });
+            } else {
+                await searchWikipedia(sock, from, session.query, newOffset, null);
+            }
         }
         else if (action === 'next') {
             const newOffset = session.offset + 5;
-            await searchWikipedia(sock, from, session.query, newOffset, editKey);
+            if (editKey) {
+                await searchWikipedia(sock, from, session.query, newOffset, editKey).catch(async (e) => {
+                    console.log('[Wiki Helper] Edit page failed, sending new message:', e.message);
+                    await searchWikipedia(sock, from, session.query, newOffset, null);
+                });
+            } else {
+                await searchWikipedia(sock, from, session.query, newOffset, null);
+            }
         }
         else if (action === 'select') {
             const index = parseInt(parts[3]);
             const article = session.results[index];
             if (!article) throw new Error('Artikel pilihan tidak ditemukan dalam sesi pencarian.');
 
-            // Edit message to show loading status first
-            await sock.relayMessage(from, {
-                protocolMessage: {
-                    key: editKey,
-                    type: 14,
-                    editedMessage: {
-                        conversation: `⏳ *Mendapatkan ringkasan untuk:* "${article.title}"...`
-                    }
-                }
-            }, {});
-
+            // Fetch summary
             const summaryUrl = `https://id.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(article.title.replace(/ /g, '_'))}`;
             console.log(`[Wiki Helper] Fetching summary for "${article.title}"...`);
 
@@ -215,32 +216,13 @@ export async function handleWikiButton(sock, m, selectedId) {
             text += `${extract}\n\n`;
             text += `🔗 *Link Artikel:* ${pageUrl}`;
 
-            // Update original message to display the final article and wipe buttons
-            await sock.relayMessage(from, {
-                protocolMessage: {
-                    key: editKey,
-                    type: 14,
-                    editedMessage: {
-                        extendedTextMessage: {
-                            text: text
-                        }
-                    }
-                }
-            }, {});
-            
-            // Clean up session from cache since we completed the reading flow
-            global.wikiCache.delete(searchId);
+            // Send summary as a new message! This is robust and doesn't erase the search result
+            await sock.sendMessage(from, { text }, { quoted: m });
         }
     } catch (err) {
         console.error('[Wiki Helper] Button Action Error:', err);
-        await sock.relayMessage(from, {
-            protocolMessage: {
-                key: editKey,
-                type: 14,
-                editedMessage: {
-                    conversation: `❌ *Gagal memuat detail artikel!*\n\n⚠️ Error: ${err.message || err}`
-                }
-            }
-        }, {});
+        await sock.sendMessage(from, {
+            text: `❌ *Gagal memuat detail artikel!*\n\n⚠️ Error: ${err.message || err}`
+        }, { quoted: m });
     }
 }
