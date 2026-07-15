@@ -15,9 +15,24 @@ const ownerUsername = process.env.TELEGRAM_OWNER_USERNAME || "";
  * @param {object} ctx - Telegram Context
  */
 function createMockSock(ctx, botInfo) {
+    // Helper to wrap Telegram response into a mock Baileys message object
+    const wrapResponse = (sentMsg, text = "") => {
+        const msgId = sentMsg?.message_id || Date.now();
+        return {
+            key: {
+                remoteJid: ctx.chat.id.toString(),
+                fromMe: true,
+                id: msgId.toString()
+            },
+            message: {
+                conversation: text
+            }
+        };
+    };
+
     return {
         user: {
-            id: botInfo?.id ? `${botInfo.id}:0@s.whatsapp.net` : "telegram-bot@s.whatsapp.net"
+            id: botInfo?.id ? `${botInfo.id}:0@telegram.net` : "telegram-bot@telegram.net"
         },
         sendMessage: async (jid, content, options = {}) => {
             // 1. Text Message
@@ -25,7 +40,23 @@ function createMockSock(ctx, botInfo) {
                 let text = content.text;
                 // Convert WhatsApp "." prefix hints to Telegram "/" prefix hints dynamically
                 text = text.replace(/(^|[^a-zA-Z0-9_])\.([a-zA-Z0-9_]+)/g, '$1/$2');
-                return ctx.reply(text, { parse_mode: 'Markdown' }).catch(() => ctx.reply(text));
+
+                let sentMsg;
+                // Support message editing
+                if (content.edit) {
+                    const messageId = parseInt(content.edit.id);
+                    if (!isNaN(messageId)) {
+                        try {
+                            sentMsg = await ctx.telegram.editMessageText(jid, messageId, null, text, { parse_mode: 'Markdown' });
+                        } catch (editErr) {
+                            console.log("[Telegram sendMessage] editMessageText failed, falling back to reply:", editErr.message);
+                            sentMsg = await ctx.reply(text, { parse_mode: 'Markdown' }).catch(() => ctx.reply(text));
+                        }
+                    }
+                } else {
+                    sentMsg = await ctx.reply(text, { parse_mode: 'Markdown' }).catch(() => ctx.reply(text));
+                }
+                return wrapResponse(sentMsg, text);
             }
 
             // Helper to get media source payload for Telegram
@@ -46,27 +77,29 @@ function createMockSock(ctx, botInfo) {
             if (content.image) {
                 const source = getMediaSource(content.image);
                 const caption = content.caption ? content.caption.replace(/(^|[^a-zA-Z0-9_])\.([a-zA-Z0-9_]+)/g, '$1/$2') : undefined;
-                return ctx.replyWithPhoto(source, { caption, parse_mode: 'Markdown' }).catch(() => ctx.replyWithPhoto(source, { caption }));
+                const sentMsg = await ctx.replyWithPhoto(source, { caption, parse_mode: 'Markdown' }).catch(() => ctx.replyWithPhoto(source, { caption }));
+                return wrapResponse(sentMsg, caption);
             }
 
             // 3. Video Message
             if (content.video) {
                 const source = getMediaSource(content.video);
                 const caption = content.caption ? content.caption.replace(/(^|[^a-zA-Z0-9_])\.([a-zA-Z0-9_]+)/g, '$1/$2') : undefined;
-                return ctx.replyWithVideo(source, { caption, parse_mode: 'Markdown' }).catch(() => ctx.replyWithVideo(source, { caption }));
+                const sentMsg = await ctx.replyWithVideo(source, { caption, parse_mode: 'Markdown' }).catch(() => ctx.replyWithVideo(source, { caption }));
+                return wrapResponse(sentMsg, caption);
             }
 
             // 4. Document Message
             if (content.document) {
                 const source = getMediaSource(content.document);
                 const caption = content.caption ? content.caption.replace(/(^|[^a-zA-Z0-9_])\.([a-zA-Z0-9_]+)/g, '$1/$2') : undefined;
-                return ctx.replyWithDocument(source, { caption, parse_mode: 'Markdown' }).catch(() => ctx.replyWithDocument(source, { caption }));
+                const sentMsg = await ctx.replyWithDocument(source, { caption, parse_mode: 'Markdown' }).catch(() => ctx.replyWithDocument(source, { caption }));
+                return wrapResponse(sentMsg, caption);
             }
 
-            // 5. Reaction Message
+            // 5. Reaction Message (silently ignored to keep Telegram chats clean)
             if (content.react) {
-                // Ignore reaction messages on Telegram to keep the chat clean
-                return;
+                return wrapResponse(null);
             }
         },
         relayMessage: async (jid, message, options = {}) => {
@@ -126,33 +159,45 @@ function createMockSock(ctx, botInfo) {
                     telegramOptions.reply_markup = { inline_keyboard: inlineKeyboard };
                 }
 
+                let sentMsg;
                 // Handle editing (protocolMessage)
                 if (message.protocolMessage) {
                     try {
-                        return await ctx.editMessageText(text, telegramOptions);
+                        sentMsg = await ctx.editMessageText(text, telegramOptions);
                     } catch (editErr) {
                         console.log("[Telegram] editMessageText failed, falling back to new reply:", editErr.message);
-                        return await ctx.reply(text, telegramOptions).catch(() => ctx.reply(text));
+                        sentMsg = await ctx.reply(text, telegramOptions).catch(() => ctx.reply(text));
                     }
+                } else {
+                    sentMsg = await ctx.reply(text, telegramOptions).catch(() => ctx.reply(text));
                 }
-
-                return await ctx.reply(text, telegramOptions).catch(() => ctx.reply(text));
+                return wrapResponse(sentMsg, text);
             }
         },
         groupMetadata: async (jid) => {
             const chatId = parseInt(jid);
             if (isNaN(chatId)) return { participants: [] };
 
+            const senderId = (ctx.message?.from?.id || ctx.callbackQuery?.from?.id || "").toString() + "@telegram.net";
+
+            // If it is a private chat (chatId > 0), return immediately
+            if (chatId > 0) {
+                return {
+                    participants: [
+                        { id: senderId, admin: null }
+                    ]
+                };
+            }
+
             try {
-                // Fetch group administrators in Telegram
+                // Fetch group administrators in Telegram (only for groups/supergroups)
                 const admins = await ctx.getChatAdministrators();
                 const participants = admins.map(admin => ({
-                    id: admin.user.id.toString() + "@s.whatsapp.net",
+                    id: admin.user.id.toString() + "@telegram.net",
                     admin: admin.status === 'creator' ? 'superadmin' : 'admin'
                 }));
 
                 // Add sender if not in admin list (as non-admin member)
-                const senderId = ctx.message?.from?.id?.toString() + "@s.whatsapp.net";
                 if (!participants.some(p => p.id === senderId)) {
                     participants.push({ id: senderId, admin: null });
                 }
@@ -221,7 +266,11 @@ function createMockSock(ctx, botInfo) {
                     throw err;
                 });
             }
-        }
+        },
+        // Mock empty definitions for common tracking and receipt utilities
+        readMessages: async () => {},
+        sendReceipt: async () => {},
+        sendPresenceUpdate: async () => {}
     };
 }
 
@@ -230,6 +279,7 @@ if (!token) {
 } else {
     console.log("[Telegram] Activating Telegram bot connector...");
     const bot = new Telegraf(token);
+    global.tgBot = bot; // Save bot instance globally for confession forwards
 
     // Load shared commands if they haven't been loaded already
     if (commands.size === 0) {
@@ -241,18 +291,77 @@ if (!token) {
     bot.on("text", async (ctx) => {
         try {
             const body = ctx.message.text.trim();
-            if (!body.startsWith("/")) return;
+            const from = ctx.chat.id.toString();
+            const isGroup = ctx.chat.type !== "private";
+            const senderJid = `${ctx.message.from.id}@telegram.net`;
+            const senderUsername = ctx.message.from.username || "";
+            const isOwner = senderUsername.toLowerCase() === ownerUsername.toLowerCase();
 
+            // 1. Check for Active Confess Session (Private Chat, non-command reply)
+            if (!isGroup && !body.startsWith("/")) {
+                const { findSessionByUser, updateSessionActivity, sendConfessMessage } = await import('./Lib/confess_manager.js');
+                const activeSession = findSessionByUser(senderJid);
+                if (activeSession) {
+                    const targetJid = activeSession.receiverJid;
+                    const forwardText = `💬 *Balasan*\n\n${body}`;
+
+                    if (global.waSock) {
+                        await sendConfessMessage(global.waSock, targetJid, forwardText);
+                        updateSessionActivity(global.waSock, activeSession);
+                        console.log(`[Telegram Confess] Forwarded message from ${senderJid} to WhatsApp JID ${targetJid}`);
+                    } else {
+                        console.error("[Telegram Confess] global.waSock is not ready.");
+                        await ctx.reply("❌ Gagal meneruskan pesan: Koneksi WhatsApp bot sedang terputus.");
+                    }
+                    return; // Halt further processing
+                }
+            }
+
+            // 2. Check for AutoDL Link (No command prefix, non-command)
+            if (!body.startsWith("/")) {
+                const { extractURLs } = await import('./utils/platformDetector.js');
+                const urls = extractURLs(body);
+                
+                if (urls.length > 0) {
+                    const urlInfo = urls[0];
+                    const targetPlatforms = ['youtube', 'instagram', 'tiktok', 'facebook'];
+                    
+                    if (targetPlatforms.includes(urlInfo.platform)) {
+                        console.log(`[Telegram AutoDL] Link detected: ${urlInfo.url} on platform: ${urlInfo.platform}`);
+                        const mockSock = createMockSock(ctx, bot.botInfo);
+                        
+                        const mockMsg = {
+                            key: {
+                                remoteJid: from,
+                                fromMe: false,
+                                id: ctx.message.message_id.toString(),
+                                participant: senderJid
+                            },
+                            pushName: ctx.message.from.first_name || "Telegram User",
+                            message: {
+                                conversation: body
+                            }
+                        };
+
+                        if (urlInfo.platform === 'youtube') {
+                            const { sendInteractiveButtons } = await import('./utils/interactiveAutoDL.js');
+                            await sendInteractiveButtons(mockSock, from, urlInfo.url, urlInfo.platform);
+                        } else {
+                            const { handleDirectDownloadAndButtons } = await import('./utils/interactiveAutoDL.js');
+                            await handleDirectDownloadAndButtons(mockSock, from, urlInfo.url, urlInfo.platform, mockMsg);
+                        }
+                        return; // Halt further processing
+                    }
+                }
+                return; // Ignore normal chat messages
+            }
+
+            // 3. Regular Command Processing (Starts with "/")
             const cmdName = body.slice(1).trim().split(" ")[0].toLowerCase();
             const args = body.trim().split(" ").slice(1);
 
             const command = getCommand(cmdName);
             if (!command) return;
-
-            const from = ctx.chat.id.toString();
-            const senderUsername = ctx.message.from.username || "";
-            const isOwner = senderUsername.toLowerCase() === ownerUsername.toLowerCase();
-            const isGroup = ctx.chat.type !== "private";
 
             // Access permission validation
             if (command.access?.owner && !isOwner) {
@@ -273,15 +382,16 @@ if (!token) {
                     remoteJid: from,
                     fromMe: false,
                     id: ctx.message.message_id.toString(),
-                    participant: ctx.message.from.id.toString() + "@s.whatsapp.net"
+                    participant: senderJid
                 },
                 pushName: ctx.message.from.first_name || "Telegram User",
                 message: {
+                    conversation: body,
                     extendedTextMessage: {
                         text: body,
                         contextInfo: ctx.message.reply_to_message ? {
                             stanzaId: ctx.message.reply_to_message.message_id.toString(),
-                            participant: ctx.message.reply_to_message.from.id.toString() + "@s.whatsapp.net",
+                            participant: ctx.message.reply_to_message.from.id.toString() + "@telegram.net",
                             quotedMessage: {
                                 conversation: ctx.message.reply_to_message.text || ""
                             }
@@ -293,7 +403,7 @@ if (!token) {
             // Run the command
             console.log(`[Telegram] Command run: /${cmdName} from ${senderUsername}`);
             await command.run(mockSock, mockMsg, args, { 
-                sender: ctx.message.from.id.toString() + "@s.whatsapp.net", 
+                sender: senderJid, 
                 isOwner, 
                 isGroup 
             });
@@ -312,13 +422,15 @@ if (!token) {
 
             const from = ctx.chat.id.toString();
             const mockSock = createMockSock(ctx, bot.botInfo);
+            const senderJid = `${ctx.callbackQuery.from.id}@telegram.net`;
 
             // Mock Baileys message object for button response
             const mockMsg = {
                 key: {
                     remoteJid: from,
                     fromMe: false,
-                    id: ctx.callbackQuery.message.message_id.toString()
+                    id: ctx.callbackQuery.message.message_id.toString(),
+                    participant: senderJid
                 },
                 pushName: ctx.callbackQuery.from.first_name || "Telegram User",
                 message: {

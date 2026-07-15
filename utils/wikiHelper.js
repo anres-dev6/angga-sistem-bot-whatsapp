@@ -25,7 +25,8 @@ const stripHtml = (html) => {
  */
 export async function searchWikipedia(sock, jid, query, offset = 0, editKey = null) {
     try {
-        const url = `https://id.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&srlimit=5&sroffset=${offset}`;
+        // srlimit=3 matches WhatsApp's 5-button limit: 3 selects + 1 prev + 1 next = 5 buttons max
+        const url = `https://id.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&srlimit=3&sroffset=${offset}`;
         console.log(`[Wiki Helper] Fetching results for "${query}", offset ${offset}...`);
         
         const res = await fetch(url, { headers: { 'User-Agent': 'WhatsAppBot/1.0' } });
@@ -59,7 +60,7 @@ export async function searchWikipedia(sock, jid, query, offset = 0, editKey = nu
         setTimeout(() => global.wikiCache.delete(searchId), 1800000);
 
         // Build result text
-        const pageNum = Math.floor(offset / 5) + 1;
+        const pageNum = Math.floor(offset / 3) + 1;
         let text = `🔍 *HASIL PENCARIAN WIKIPEDIA*\n`;
         text += `📝 Kata Kunci: *"${query}"*\n`;
         text += `📄 Halaman: *${pageNum}*\n\n`;
@@ -172,7 +173,7 @@ export async function handleWikiButton(sock, m, selectedId) {
 
     try {
         if (action === 'prev') {
-            const newOffset = Math.max(0, session.offset - 5);
+            const newOffset = Math.max(0, session.offset - 3);
             if (editKey) {
                 await searchWikipedia(sock, from, session.query, newOffset, editKey).catch(async (e) => {
                     console.log('[Wiki Helper] Edit page failed, sending new message:', e.message);
@@ -183,7 +184,7 @@ export async function handleWikiButton(sock, m, selectedId) {
             }
         }
         else if (action === 'next') {
-            const newOffset = session.offset + 5;
+            const newOffset = session.offset + 3;
             if (editKey) {
                 await searchWikipedia(sock, from, session.query, newOffset, editKey).catch(async (e) => {
                     console.log('[Wiki Helper] Edit page failed, sending new message:', e.message);

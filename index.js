@@ -86,6 +86,8 @@ async function startBot() {
         version
     });
 
+    global.waSock = sock; // Expose WhatsApp socket globally for bot integrations
+
     sock.userbotGl = true; // Automatically enable Global Listener for main bot/owner
 
     // Save credentials

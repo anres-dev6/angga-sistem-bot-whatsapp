@@ -373,7 +373,7 @@ export default async function handleMessage(sock, msg) {
         //    Anonymous Confess Session Router
         // =====================================
         try {
-            const { findSessionByUser, updateSessionActivity, cleanJid } = await import('../Lib/confess_manager.js');
+            const { findSessionByUser, updateSessionActivity, cleanJid, sendConfessMessage } = await import('../Lib/confess_manager.js');
             const activeSession = findSessionByUser(sender);
 
             if (activeSession && body.trim()) {
@@ -386,7 +386,7 @@ export default async function handleMessage(sock, msg) {
                         : activeSession.senderJid;
 
                     const forwardText = `💬 *Balasan*\n\n${body.trim()}`;
-                    await sock.sendMessage(targetJid, { text: forwardText });
+                    await sendConfessMessage(sock, targetJid, forwardText);
 
                     // Reset/extend the 1-hour inactivity timeout
                     updateSessionActivity(sock, activeSession);
