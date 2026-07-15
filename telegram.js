@@ -22,25 +22,7 @@ if (!token) {
         await loadCommands(path.join(__dirname, "commands"));
     }
 
-    // Register commands list in Telegram menu
-    try {
-        const botCommands = [];
-        for (const [name, cmd] of commands.entries()) {
-            // Telegram command names must be lowercase, 1-32 chars, matching: ^[a-z0-9_]+$
-            if (/^[a-z0-9_]{1,32}$/.test(name)) {
-                botCommands.push({
-                    command: name,
-                    description: cmd.description ? cmd.description.substring(0, 256) : `Jalankan perintah ${name}`
-                });
-            }
-        }
-        if (botCommands.length > 0) {
-            await bot.telegram.setMyCommands(botCommands);
-            console.log(`[Telegram] Registered ${botCommands.length} commands in Telegram menu.`);
-        }
-    } catch (menuErr) {
-        console.error("[Telegram] Failed to set bot commands menu:", menuErr);
-    }
+
 
     // Handle text commands
     bot.on("text", async (ctx) => {
@@ -143,12 +125,35 @@ if (!token) {
         }
     });
 
-    // Launch Bot
-    bot.launch().then(() => {
-        console.log("🚀 [Telegram] Bot Telegram berhasil dijalankan!");
-    }).catch((err) => {
-        console.error("❌ [Telegram] Gagal meluncurkan bot:", err);
-    });
+    // Launch Bot and set menu after 5 seconds to let the container network stabilize
+    setTimeout(async () => {
+        // Register commands list in Telegram menu
+        try {
+            const botCommands = [];
+            for (const [name, cmd] of commands.entries()) {
+                // Telegram command names must be lowercase, 1-32 chars, matching: ^[a-z0-9_]+$
+                if (/^[a-z0-9_]{1,32}$/.test(name)) {
+                    botCommands.push({
+                        command: name,
+                        description: cmd.description ? cmd.description.substring(0, 256) : `Jalankan perintah ${name}`
+                    });
+                }
+            }
+            if (botCommands.length > 0) {
+                await bot.telegram.setMyCommands(botCommands);
+                console.log(`[Telegram] Registered ${botCommands.length} commands in Telegram menu.`);
+            }
+        } catch (menuErr) {
+            console.error("[Telegram] Failed to set bot commands menu:", menuErr);
+        }
+
+        // Launch Telegram polling
+        bot.launch().then(() => {
+            console.log("🚀 [Telegram] Bot Telegram berhasil dijalankan!");
+        }).catch((err) => {
+            console.error("❌ [Telegram] Gagal meluncurkan bot:", err);
+        });
+    }, 5000);
 
     // Enable graceful stop
     process.once("SIGINT", () => bot.stop("SIGINT"));
