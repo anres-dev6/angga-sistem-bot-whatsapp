@@ -141,15 +141,14 @@ export default {
 
             // 🔑 Generate full message - JID HARUS sama dengan target relayMessage (bersihkan suffix device)
             const cleanUserJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-            const finalMessage = generateWAMessageFromContent('status@broadcast', statusMessage, {
+            const finalMessage = generateWAMessageFromContent(from, statusMessage, {
                 userJid: cleanUserJid,
                 quoted: msg
             });
 
-            // 🔑 Relay ke status@broadcast dengan target group JID (Group Story)
-            await sock.relayMessage('status@broadcast', finalMessage.message, {
-                messageId: finalMessage.key.id,
-                statusJidList: [from]
+            // 🔑 Relay ke Group JID (Group Story)
+            await sock.relayMessage(from, finalMessage.message, {
+                messageId: finalMessage.key.id
             });
 
             // React with success emoji (no text response as requested)

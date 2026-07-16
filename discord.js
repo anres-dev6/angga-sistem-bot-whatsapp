@@ -10,18 +10,26 @@ const __dirname = path.dirname(__filename);
 function parseNetscapeCookies(cookieText) {
     if (!cookieText) return '';
     if (!cookieText.includes('\t') && cookieText.includes('=')) {
-        return cookieText.trim();
+        return cookieText.replace(/[^ -~]/g, '').trim();
     }
-    const lines = cookieText.split('\n');
+    
+    const cleanText = cookieText.replace(/\r/g, '');
+    const lines = cleanText.split('\n');
     const cookiePairs = [];
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith('#')) continue;
-        const parts = trimmed.split('\t');
+        
+        // Split by tabs or spaces
+        const parts = trimmed.split(/\s+/);
         if (parts.length >= 7) {
             const name = parts[5];
             const value = parts[6];
-            cookiePairs.push(`${name}=${value}`);
+            if (name && value) {
+                const cleanName = name.replace(/[^ -~]/g, '');
+                const cleanValue = value.replace(/[^ -~]/g, '');
+                cookiePairs.push(`${cleanName}=${cleanValue}`);
+            }
         }
     }
     return cookiePairs.join('; ');
