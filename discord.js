@@ -34,6 +34,21 @@ if (!token) {
         console.warn("⚠️ [Discord] SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET is missing. Spotify Playlists won't be supported keylessly, but single tracks will use public API fallback.");
     }
 
+    // Setup YouTube cookies if available
+    const ytCookie = process.env.YOUTUBE_COOKIE;
+    if (ytCookie) {
+        try {
+            play.setToken({
+                youtube: {
+                    cookie: ytCookie
+                }
+            });
+            console.log("[Discord] Loaded YouTube cookies successfully!");
+        } catch (ytErr) {
+            console.error("[Discord] Failed to set YouTube cookies:", ytErr.message);
+        }
+    }
+
     const client = new Client({
         intents: [
             GatewayIntentBits.Guilds,

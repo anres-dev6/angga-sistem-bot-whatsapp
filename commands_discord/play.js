@@ -44,41 +44,38 @@ export default {
             const hasKeys = !!(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET);
             const isTrack = query.includes('/track/');
 
-            // Keyless flow for single tracks
-            if (isTrack && !hasKeys) {
+            // Flow for single track
+            if (isTrack) {
+                let resolvedKeyless = false;
                 try {
                     console.log(`[Spotify Loader] Keyless lookup for single track: ${query}`);
                     const apiUrl = `https://api.siputzx.my.id/api/d/spotifyv2?url=${encodeURIComponent(query)}`;
                     const response = await fetch(apiUrl);
-                    if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
-                    
-                    const data = await response.json();
-                    if (data.status && data.data && data.data.download) {
-                        songsToAdd.push({
-                            title: `${data.data.title} - ${data.data.artist || 'Spotify'}`,
-                            url: data.data.download,
-                            duration: 'Unknown',
-                            source: 'spotify',
-                            resolved: true
-                        });
-                    } else {
-                        throw new Error('API returned invalid/empty download link');
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.status && data.data && data.data.download) {
+                            songsToAdd.push({
+                                title: `${data.data.title} - ${data.data.artist || 'Spotify'}`,
+                                url: data.data.download,
+                                duration: 'Unknown',
+                                source: 'spotify',
+                                resolved: true
+                            });
+                            resolvedKeyless = true;
+                            console.log(`[Spotify Loader] Resolved keylessly via public API!`);
+                        }
                     }
                 } catch (err) {
-                    console.error('[Spotify Loader] Keyless lookup failed:', err.message);
-                    return message.reply('❌ Gagal memuat metadata Spotify. Pastikan link track Spotify Anda valid atau atur `SPOTIFY_CLIENT_ID` & `SPOTIFY_CLIENT_SECRET` di Railway.');
-                }
-            } 
-            // Credential-based flow (playlists/albums or fallback single tracks)
-            else {
-                if (!hasKeys) {
-                    return message.reply('❌ Untuk memutar **Playlist/Album Spotify**, Anda wajib mendaftarkan Client ID & Client Secret di Railway/Environment Variables sebagai `SPOTIFY_CLIENT_ID` dan `SPOTIFY_CLIENT_SECRET`!');
+                    console.warn('[Spotify Loader] Keyless lookup failed:', err.message);
                 }
 
-                try {
-                    const spData = await play.spotify(query);
-                    
-                    if (spData.type === 'track') {
+                // If keyless failed, try credential-based fallback
+                if (!resolvedKeyless) {
+                    if (!hasKeys) {
+                        return message.reply('❌ Gagal memuat metadata Spotify. Pastikan link track Spotify Anda valid atau atur `SPOTIFY_CLIENT_ID` & `SPOTIFY_CLIENT_SECRET` di Railway.');
+                    }
+                    try {
+                        const spData = await play.spotify(query);
                         const searchResult = await play.search(`${spData.name} ${spData.artists.map(a => a.name).join(' ')}`, { limit: 1 });
                         if (searchResult.length > 0) {
                             songsToAdd.push({
@@ -88,8 +85,24 @@ export default {
                                 source: 'spotify',
                                 resolved: true
                             });
+                        } else {
+                            throw new Error('Track not found on YouTube search fallback');
                         }
-                    } else if (spData.type === 'playlist' || spData.type === 'album') {
+                    } catch (err) {
+                        console.error('[Spotify Loader] Credential-based track lookup failed:', err);
+                        return message.reply(`❌ Gagal memuat track Spotify menggunakan API key.\n⚠️ **Error:** ${err.message || err}`);
+                    }
+                }
+            } 
+            // Flow for playlists/albums
+            else {
+                if (!hasKeys) {
+                    return message.reply('❌ Untuk memutar **Playlist/Album Spotify**, Anda wajib mendaftarkan Client ID & Client Secret di Railway/Environment Variables sebagai `SPOTIFY_CLIENT_ID` dan `SPOTIFY_CLIENT_SECRET`!');
+                }
+
+                try {
+                    const spData = await play.spotify(query);
+                    if (spData.type === 'playlist' || spData.type === 'album') {
                         isPlaylist = true;
                         playlistName = spData.name;
                         const tracks = spData.tracks.items || spData.tracks;
@@ -109,8 +122,8 @@ export default {
                         });
                     }
                 } catch (err) {
-                    console.error('[Spotify Loader] Error with credentials:', err);
-                    return message.reply('❌ Gagal memuat data dari Spotify menggunakan API key.');
+                    console.error('[Spotify Loader] Playlist Error with credentials:', err);
+                    return message.reply(`❌ Gagal memuat Playlist/Album dari Spotify menggunakan API key.\n⚠️ **Error:** ${err.message || err}`);
                 }
             }
         }
@@ -243,14 +256,44 @@ async function playSong(guildId, song, queueMap) {
         // Resolve Spotify placeholder to YouTube stream url on-the-fly right before playing
         if (!song.resolved) {
             console.log(`[Audio Playback] Resolving Spotify track JIT: ${song.title} ${song.artist || ''}`);
-            const searchResult = await play.search(`${song.title} ${song.artist || ''}`, { limit: 1 });
-            if (searchResult.length > 0) {
-                song.url = searchResult[0].url;
-                song.resolved = true;
-            } else {
-                serverQueue.textChannel.send(`⚠️ Gagal mencari versi audio untuk: **${song.title}** (Lagu dilewati).`);
-                serverQueue.songs.shift();
-                return playSong(guildId, serverQueue.songs[0], queueMap);
+            
+            // Try keyless search and resolve first
+            let resolvedKeyless = false;
+            try {
+                const query = `${song.title} ${song.artist || ''}`.trim();
+                const searchApi = `https://api.siputzx.my.id/api/s/spotify?query=${encodeURIComponent(query)}`;
+                const searchRes = await fetch(searchApi);
+                if (searchRes.ok) {
+                    const searchData = await searchRes.json();
+                    if (searchData.status && searchData.data && searchData.data.length > 0) {
+                        const trackUrl = searchData.data[0].link;
+                        const dlApi = `https://api.siputzx.my.id/api/d/spotifyv2?url=${encodeURIComponent(trackUrl)}`;
+                        const dlRes = await fetch(dlApi);
+                        if (dlRes.ok) {
+                            const dlData = await dlRes.json();
+                            if (dlData.status && dlData.data && dlData.data.download) {
+                                song.url = dlData.data.download;
+                                song.resolved = true;
+                                resolvedKeyless = true;
+                                console.log(`[Audio Playback] Spotify JIT resolved keylessly via public API!`);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn(`[Audio Playback] JIT Spotify keyless resolve failed:`, e.message);
+            }
+
+            if (!resolvedKeyless) {
+                const searchResult = await play.search(`${song.title} ${song.artist || ''}`, { limit: 1 });
+                if (searchResult.length > 0) {
+                    song.url = searchResult[0].url;
+                    song.resolved = true;
+                } else {
+                    serverQueue.textChannel.send(`⚠️ Gagal mencari versi audio untuk: **${song.title}** (Lagu dilewati).`);
+                    serverQueue.songs.shift();
+                    return playSong(guildId, serverQueue.songs[0], queueMap);
+                }
             }
         }
 
@@ -327,6 +370,36 @@ async function playSong(guildId, song, queueMap) {
 
     } catch (err) {
         console.error('[Audio Playback] Error:', err);
+
+        // Bypassing YouTube "confirm you're not a bot" rate limit by falling back to keyless Spotify CDN stream!
+        const isBotBlock = err.message.includes('confirm') || err.message.includes('Sign in') || err.message.includes('bot');
+        if (isBotBlock && song.source !== 'spotify_cdn') {
+            serverQueue.textChannel.send(`⚠️ YouTube mendeteksi bot (Rate Limit IP Cloud). Mencoba memutar lewat jalur alternatif CDN Spotify...`);
+            try {
+                const searchApi = `https://api.siputzx.my.id/api/s/spotify?query=${encodeURIComponent(song.title)}`;
+                const searchRes = await fetch(searchApi);
+                if (searchRes.ok) {
+                    const searchData = await searchRes.json();
+                    if (searchData.status && searchData.data && searchData.data.length > 0) {
+                        const trackUrl = searchData.data[0].link;
+                        const dlApi = `https://api.siputzx.my.id/api/d/spotifyv2?url=${encodeURIComponent(trackUrl)}`;
+                        const dlRes = await fetch(dlApi);
+                        if (dlRes.ok) {
+                            const dlData = await dlRes.json();
+                            if (dlData.status && dlData.data && dlData.data.download) {
+                                song.url = dlData.data.download;
+                                song.source = 'spotify_cdn';
+                                song.resolved = true;
+                                return playSong(guildId, song, queueMap);
+                            }
+                        }
+                    }
+                }
+            } catch (fallbackErr) {
+                console.error('[Audio Playback] Spotify fallback failed:', fallbackErr.message);
+            }
+        }
+
         serverQueue.textChannel.send(`❌ Gagal memutar lagu **${song.title}**: ${err.message}`);
         serverQueue.songs.shift();
         playSong(guildId, serverQueue.songs[0], queueMap);
