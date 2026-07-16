@@ -113,9 +113,16 @@ export default {
             }
 
             // 🔑 Generate WA Message Content (RAW)
-            const inside = await generateWAMessageContent(content, {
-                upload: sock.waUploadToServer
-            });
+            let inside;
+            if (isTextOnly) {
+                inside = {
+                    conversation: caption
+                };
+            } else {
+                inside = await generateWAMessageContent(content, {
+                    upload: sock.waUploadToServer
+                });
+            }
 
             // 🔑 Generate messageSecret (MANDATORY for status)
             const messageSecret = crypto.randomBytes(32);
@@ -132,9 +139,10 @@ export default {
                 }
             };
 
-            // 🔑 Generate full message - JID HARUS sama dengan target relayMessage
+            // 🔑 Generate full message - JID HARUS sama dengan target relayMessage (bersihkan suffix device)
+            const cleanUserJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
             const finalMessage = generateWAMessageFromContent('status@broadcast', statusMessage, {
-                userJid: sock.user.id,
+                userJid: cleanUserJid,
                 quoted: msg
             });
 

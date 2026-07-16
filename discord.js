@@ -7,6 +7,26 @@ import play from 'play-dl';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function parseNetscapeCookies(cookieText) {
+    if (!cookieText) return '';
+    if (!cookieText.includes('\t') && cookieText.includes('=')) {
+        return cookieText.trim();
+    }
+    const lines = cookieText.split('\n');
+    const cookiePairs = [];
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const parts = trimmed.split('\t');
+        if (parts.length >= 7) {
+            const name = parts[5];
+            const value = parts[6];
+            cookiePairs.push(`${name}=${value}`);
+        }
+    }
+    return cookiePairs.join('; ');
+}
+
 const token = process.env.DISCORD_TOKEN || "";
 const prefix = "!";
 
@@ -38,12 +58,13 @@ if (!token) {
     const ytCookie = process.env.YOUTUBE_COOKIE;
     if (ytCookie) {
         try {
+            const parsedCookie = parseNetscapeCookies(ytCookie);
             play.setToken({
                 youtube: {
-                    cookie: ytCookie
+                    cookie: parsedCookie
                 }
             });
-            console.log("[Discord] Loaded YouTube cookies successfully!");
+            console.log("[Discord] Loaded and parsed YouTube cookies successfully!");
         } catch (ytErr) {
             console.error("[Discord] Failed to set YouTube cookies:", ytErr.message);
         }
