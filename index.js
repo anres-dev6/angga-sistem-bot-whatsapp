@@ -278,3 +278,8 @@ startBot();
 import("./telegram.js").catch(err => {
     console.error("❌ Failed to start Telegram bot:", err);
 });
+
+// Start Discord Bot in parallel inside the same process
+import("./discord.js").catch(err => {
+    console.error("❌ Failed to start Discord bot:", err);
+});
