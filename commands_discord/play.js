@@ -39,13 +39,18 @@ export default {
         const ytValidate = play.yt_validate(query);
 
         // 1. Handle Spotify Links
-        const isSpotifyLink = query.includes('spotify.com') && play.sp_validate(query);
+        const isSpotifyLink = query.includes('spotify.com');
         if (isSpotifyLink) {
             const hasKeys = !!(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET);
-            const isTrack = query.includes('/track/');
+            
+            // Extract IDs
+            const trackMatch = query.match(/\/track\/([a-zA-Z0-9]+)/);
+            const playlistMatch = query.match(/\/playlist\/([a-zA-Z0-9]+)/);
+            const albumMatch = query.match(/\/album\/([a-zA-Z0-9]+)/);
 
             // Flow for single track
-            if (isTrack) {
+            if (trackMatch) {
+                const trackId = trackMatch[1];
                 let resolvedKeyless = false;
                 try {
                     console.log(`[Spotify Loader] Keyless lookup for single track: ${query}`);
@@ -75,13 +80,14 @@ export default {
                         return message.reply('❌ Gagal memuat metadata Spotify. Pastikan link track Spotify Anda valid atau atur `SPOTIFY_CLIENT_ID` & `SPOTIFY_CLIENT_SECRET` di Railway.');
                     }
                     try {
-                        const spData = await play.spotify(query);
-                        const searchResult = await play.search(`${spData.name} ${spData.artists.map(a => a.name).join(' ')}`, { limit: 1 });
+                        const token = await getSpotifyToken(process.env.SPOTIFY_CLIENT_ID, process.env.SPOTIFY_CLIENT_SECRET);
+                        const trackData = await getSpotifyTrack(trackId, token);
+                        const searchResult = await play.search(`${trackData.name} ${trackData.artists.map(a => a.name).join(' ')}`, { limit: 1 });
                         if (searchResult.length > 0) {
                             songsToAdd.push({
-                                title: spData.name,
+                                title: trackData.name,
                                 url: searchResult[0].url,
-                                duration: searchResult[0].durationRaw || formatMs(spData.duration_ms),
+                                duration: searchResult[0].durationRaw || formatMs(trackData.duration_ms),
                                 source: 'spotify',
                                 resolved: true
                             });
@@ -94,37 +100,88 @@ export default {
                     }
                 }
             } 
-            // Flow for playlists/albums
-            else {
+            // Flow for playlists
+            else if (playlistMatch) {
                 if (!hasKeys) {
-                    return message.reply('❌ Untuk memutar **Playlist/Album Spotify**, Anda wajib mendaftarkan Client ID & Client Secret di Railway/Environment Variables sebagai `SPOTIFY_CLIENT_ID` dan `SPOTIFY_CLIENT_SECRET`!');
+                    return message.reply('❌ Untuk memutar **Playlist Spotify**, Anda wajib mendaftarkan Client ID & Client Secret di Railway/Environment Variables sebagai `SPOTIFY_CLIENT_ID` dan `SPOTIFY_CLIENT_SECRET`!');
                 }
-
                 try {
-                    const spData = await play.spotify(query);
-                    if (spData.type === 'playlist' || spData.type === 'album') {
-                        isPlaylist = true;
-                        playlistName = spData.name;
-                        const tracks = spData.tracks.items || spData.tracks;
-                        
-                        const totalMs = tracks.reduce((acc, t) => acc + (t.duration_ms || 0), 0);
-                        totalDurationStr = formatMs(totalMs);
+                    const playlistId = playlistMatch[1];
+                    const token = await getSpotifyToken(process.env.SPOTIFY_CLIENT_ID, process.env.SPOTIFY_CLIENT_SECRET);
+                    
+                    // Fetch playlist metadata (for name)
+                    const plMetaRes = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!plMetaRes.ok) throw new Error(`Failed to fetch playlist meta: ${plMetaRes.status}`);
+                    const plMetaData = await plMetaRes.json();
+                    
+                    playlistName = plMetaData.name || 'Spotify Playlist';
+                    isPlaylist = true;
 
-                        tracks.forEach(track => {
+                    // Fetch tracks
+                    const tracks = await getSpotifyPlaylistTracks(playlistId, token);
+                    const totalMs = tracks.reduce((acc, t) => acc + (t?.duration_ms || 0), 0);
+                    totalDurationStr = formatMs(totalMs);
+
+                    tracks.forEach(t => {
+                        if (t) {
                             songsToAdd.push({
-                                title: track.name,
-                                artist: track.artists ? track.artists.map(a => a.name).join(' ') : '',
+                                title: t.name,
+                                artist: t.artists ? t.artists.map(a => a.name).join(' ') : '',
                                 url: null,
-                                duration: formatMs(track.duration_ms),
+                                duration: formatMs(t.duration_ms),
                                 source: 'spotify',
                                 resolved: false
                             });
-                        });
-                    }
+                        }
+                    });
                 } catch (err) {
-                    console.error('[Spotify Loader] Playlist Error with credentials:', err);
-                    return message.reply(`❌ Gagal memuat Playlist/Album dari Spotify menggunakan API key.\n⚠️ **Error:** ${err.message || err}`);
+                    console.error('[Spotify Loader] Playlist Error:', err);
+                    return message.reply(`❌ Gagal memuat Playlist dari Spotify.\n⚠️ **Error:** ${err.message || err}`);
                 }
+            }
+            // Flow for albums
+            else if (albumMatch) {
+                if (!hasKeys) {
+                    return message.reply('❌ Untuk memutar **Album Spotify**, Anda wajib mendaftarkan Client ID & Client Secret di Railway/Environment Variables sebagai `SPOTIFY_CLIENT_ID` dan `SPOTIFY_CLIENT_SECRET`!');
+                }
+                try {
+                    const albumId = albumMatch[1];
+                    const token = await getSpotifyToken(process.env.SPOTIFY_CLIENT_ID, process.env.SPOTIFY_CLIENT_SECRET);
+                    
+                    // Fetch album metadata
+                    const albMetaRes = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!albMetaRes.ok) throw new Error(`Failed to fetch album meta: ${albMetaRes.status}`);
+                    const albMetaData = await albMetaRes.json();
+                    
+                    playlistName = albMetaData.name || 'Spotify Album';
+                    isPlaylist = true;
+
+                    const tracks = await getSpotifyAlbumTracks(albumId, token);
+                    const totalMs = tracks.reduce((acc, t) => acc + (t?.duration_ms || 0), 0);
+                    totalDurationStr = formatMs(totalMs);
+
+                    tracks.forEach(t => {
+                        if (t) {
+                            songsToAdd.push({
+                                title: t.name,
+                                artist: t.artists ? t.artists.map(a => a.name).join(' ') : '',
+                                url: null,
+                                duration: formatMs(t.duration_ms),
+                                source: 'spotify',
+                                resolved: false
+                            });
+                        }
+                    });
+                } catch (err) {
+                    console.error('[Spotify Loader] Album Error:', err);
+                    return message.reply(`❌ Gagal memuat Album dari Spotify.\n⚠️ **Error:** ${err.message || err}`);
+                }
+            } else {
+                return message.reply('❌ Tautan Spotify tidak dikenali (hanya mendukung track, playlist, atau album).');
             }
         }
         // 2. Handle YouTube Playlists
@@ -297,11 +354,18 @@ async function playSong(guildId, song, queueMap) {
             }
         }
 
-        const stream = await play.stream(song.url);
-        const resource = createAudioResource(stream.stream, {
-            inputType: stream.type,
-            inlineVolume: true
-        });
+        let resource;
+        if (song.source === 'spotify_cdn' || (song.url && !song.url.includes('youtube.com') && !song.url.includes('youtu.be') && !song.url.includes('soundcloud.com'))) {
+            resource = createAudioResource(song.url, {
+                inlineVolume: true
+            });
+        } else {
+            const stream = await play.stream(song.url);
+            resource = createAudioResource(stream.stream, {
+                inputType: stream.type,
+                inlineVolume: true
+            });
+        }
         
         resource.volume.setVolume(serverQueue.volume);
         serverQueue.audioResource = resource;
@@ -404,4 +468,75 @@ async function playSong(guildId, song, queueMap) {
         serverQueue.songs.shift();
         playSong(guildId, serverQueue.songs[0], queueMap);
     }
+}
+
+// Custom Spotify API Handlers (Bypasses play-dl authorization issues)
+async function getSpotifyToken(clientId, clientSecret) {
+    const res = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64'),
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'grant_type=client_credentials'
+    });
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Spotify Auth failed (${res.status}): ${errText}`);
+    }
+    const data = await res.json();
+    return data.access_token;
+}
+
+async function getSpotifyPlaylistTracks(playlistId, token) {
+    let tracks = [];
+    let nextUrl = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`;
+    while (nextUrl) {
+        const res = await fetch(nextUrl, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`Spotify API error: ${errText}`);
+        }
+        const data = await res.json();
+        tracks.push(...data.items.map(item => item.track));
+        nextUrl = data.next;
+    }
+    return tracks;
+}
+
+async function getSpotifyAlbumTracks(albumId, token) {
+    let tracks = [];
+    let nextUrl = `https://api.spotify.com/v1/albums/${albumId}/tracks?limit=100`;
+    while (nextUrl) {
+        const res = await fetch(nextUrl, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`Spotify API error: ${errText}`);
+        }
+        const data = await res.json();
+        tracks.push(...data.items);
+        nextUrl = data.next;
+    }
+    return tracks;
+}
+
+async function getSpotifyTrack(trackId, token) {
+    const res = await fetch(`https://api.spotify.com/v1/tracks/${trackId}`, {
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Spotify API error: ${errText}`);
+    }
+    return await res.json();
 }
