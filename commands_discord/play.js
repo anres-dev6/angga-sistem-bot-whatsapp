@@ -109,23 +109,32 @@ export default {
                     const playlistId = playlistMatch[1];
                     const token = await getSpotifyToken(process.env.SPOTIFY_CLIENT_ID, process.env.SPOTIFY_CLIENT_SECRET);
                     
-                    // Fetch playlist metadata (for name)
-                    const plMetaRes = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    if (!plMetaRes.ok) throw new Error(`Failed to fetch playlist meta: ${plMetaRes.status}`);
-                    const plMetaData = await plMetaRes.json();
-                    
-                    playlistName = plMetaData.name || 'Spotify Playlist';
+                    // Fetch playlist metadata (graceful - name only, don't fail if 403)
+                    playlistName = 'Spotify Playlist';
+                    try {
+                        const plMetaRes = await fetch(
+                            `https://api.spotify.com/v1/playlists/${playlistId}?fields=name&market=ID`,
+                            { headers: { 'Authorization': `Bearer ${token}` } }
+                        );
+                        if (plMetaRes.ok) {
+                            const plMetaData = await plMetaRes.json();
+                            playlistName = plMetaData.name || 'Spotify Playlist';
+                        }
+                    } catch {}
+
                     isPlaylist = true;
 
                     // Fetch tracks
                     const tracks = await getSpotifyPlaylistTracks(playlistId, token);
+                    if (!tracks || tracks.length === 0) {
+                        return message.reply('❌ Playlist Spotify kosong atau tidak dapat diakses.');
+                    }
+
                     const totalMs = tracks.reduce((acc, t) => acc + (t?.duration_ms || 0), 0);
                     totalDurationStr = formatMs(totalMs);
 
                     tracks.forEach(t => {
-                        if (t) {
+                        if (t && t.name) {
                             songsToAdd.push({
                                 title: t.name,
                                 artist: t.artists ? t.artists.map(a => a.name).join(' ') : '',
@@ -150,22 +159,31 @@ export default {
                     const albumId = albumMatch[1];
                     const token = await getSpotifyToken(process.env.SPOTIFY_CLIENT_ID, process.env.SPOTIFY_CLIENT_SECRET);
                     
-                    // Fetch album metadata
-                    const albMetaRes = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    if (!albMetaRes.ok) throw new Error(`Failed to fetch album meta: ${albMetaRes.status}`);
-                    const albMetaData = await albMetaRes.json();
-                    
-                    playlistName = albMetaData.name || 'Spotify Album';
+                    // Fetch album metadata (graceful - name only, don't fail if 403)
+                    playlistName = 'Spotify Album';
+                    try {
+                        const albMetaRes = await fetch(
+                            `https://api.spotify.com/v1/albums/${albumId}?market=ID`,
+                            { headers: { 'Authorization': `Bearer ${token}` } }
+                        );
+                        if (albMetaRes.ok) {
+                            const albMetaData = await albMetaRes.json();
+                            playlistName = albMetaData.name || 'Spotify Album';
+                        }
+                    } catch {}
+
                     isPlaylist = true;
 
                     const tracks = await getSpotifyAlbumTracks(albumId, token);
+                    if (!tracks || tracks.length === 0) {
+                        return message.reply('❌ Album Spotify kosong atau tidak dapat diakses.');
+                    }
+
                     const totalMs = tracks.reduce((acc, t) => acc + (t?.duration_ms || 0), 0);
                     totalDurationStr = formatMs(totalMs);
 
                     tracks.forEach(t => {
-                        if (t) {
+                        if (t && t.name) {
                             songsToAdd.push({
                                 title: t.name,
                                 artist: t.artists ? t.artists.map(a => a.name).join(' ') : '',
@@ -490,19 +508,19 @@ async function getSpotifyToken(clientId, clientSecret) {
 
 async function getSpotifyPlaylistTracks(playlistId, token) {
     let tracks = [];
-    let nextUrl = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`;
+    let nextUrl = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100&market=ID&additional_types=track`;
     while (nextUrl) {
         const res = await fetch(nextUrl, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!res.ok) {
             const errText = await res.text();
-            throw new Error(`Spotify API error: ${errText}`);
+            let parsedErr;
+            try { parsedErr = JSON.parse(errText); } catch {}
+            throw new Error(`Spotify playlist tracks error: ${res.status} (${parsedErr?.error?.message || errText})`);
         }
         const data = await res.json();
-        tracks.push(...data.items.map(item => item.track));
+        tracks.push(...data.items.map(item => item.track).filter(Boolean));
         nextUrl = data.next;
     }
     return tracks;
@@ -510,19 +528,19 @@ async function getSpotifyPlaylistTracks(playlistId, token) {
 
 async function getSpotifyAlbumTracks(albumId, token) {
     let tracks = [];
-    let nextUrl = `https://api.spotify.com/v1/albums/${albumId}/tracks?limit=100`;
+    let nextUrl = `https://api.spotify.com/v1/albums/${albumId}/tracks?limit=100&market=ID`;
     while (nextUrl) {
         const res = await fetch(nextUrl, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!res.ok) {
             const errText = await res.text();
-            throw new Error(`Spotify API error: ${errText}`);
+            let parsedErr;
+            try { parsedErr = JSON.parse(errText); } catch {}
+            throw new Error(`Spotify album tracks error: ${res.status} (${parsedErr?.error?.message || errText})`);
         }
         const data = await res.json();
-        tracks.push(...data.items);
+        tracks.push(...data.items.filter(Boolean));
         nextUrl = data.next;
     }
     return tracks;
