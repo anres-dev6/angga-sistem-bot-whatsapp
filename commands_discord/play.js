@@ -1,4 +1,5 @@
 import { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } from '@discordjs/voice';
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import play from 'play-dl';
 import fetch from 'node-fetch';
 
@@ -261,6 +262,54 @@ async function playSong(guildId, song, queueMap) {
         resource.volume.setVolume(serverQueue.volume);
         serverQueue.audioResource = resource;
         serverQueue.player.play(resource);
+
+        // Get thumbnail for the embed
+        let thumbnail = null;
+        if (song.url) {
+            const videoId = song.url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
+            if (videoId) {
+                thumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+            }
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('🎶 Sekarang Diputar')
+            .setDescription(`**${song.title}**`)
+            .setColor('#5865F2')
+            .addFields(
+                { name: '⏱️ Durasi', value: `${song.duration}`, inline: true },
+                { name: '🎵 Sumber', value: `${song.source.toUpperCase()}`, inline: true }
+            );
+
+        if (thumbnail) {
+            embed.setThumbnail(thumbnail);
+        }
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('music_pause_resume')
+                    .setEmoji('⏯️')
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('music_skip')
+                    .setEmoji('⏭️')
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('music_stop')
+                    .setEmoji('⏹️')
+                    .setStyle(ButtonStyle.Danger),
+                new ButtonBuilder()
+                    .setCustomId('music_vol_down')
+                    .setEmoji('🔉')
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('music_vol_up')
+                    .setEmoji('🔊')
+                    .setStyle(ButtonStyle.Secondary)
+            );
+
+        serverQueue.textChannel.send({ embeds: [embed], components: [row] });
 
         // Track when song finishes
         serverQueue.player.once(AudioPlayerStatus.Idle, () => {

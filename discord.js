@@ -48,7 +48,7 @@ if (!token) {
     global.discordClient = client; // Expose client globally
 
     client.commands = new Collection();
-    const queue = new Map(); // Global music queue per guild
+    client.queue = new Map(); // Global music queue per guild on client object
 
     // Load Discord Commands
     const commandsPath = path.join(__dirname, 'commands_discord');
@@ -89,11 +89,75 @@ if (!token) {
         if (!command) return;
 
         try {
-            console.log(`[Discord] Command run: ${prefix}${commandName} by ${message.author.tag} in ${message.guild.name}`);
-            await command.run(client, message, args, queue);
+            console.log(`[Discord] Command run: ${prefixUsed}${commandName} by ${message.author.tag} in ${message.guild.name}`);
+            await command.run(client, message, args, client.queue);
         } catch (error) {
             console.error(`[Discord] Error executing command ${commandName}:`, error);
             message.reply('❌ Terjadi kesalahan saat menjalankan perintah tersebut!');
+        }
+    });
+
+    // Listen for Button Interactions (Music Controls)
+    client.on('interactionCreate', async (interaction) => {
+        if (!interaction.isButton()) return;
+        if (!interaction.customId.startsWith('music_')) return;
+
+        const serverQueue = client.queue.get(interaction.guildId);
+        if (!serverQueue) {
+            return interaction.reply({ content: '❌ Tidak ada musik yang sedang diputar!', ephemeral: true });
+        }
+
+        const voiceChannel = interaction.member.voice.channel;
+        if (!voiceChannel || voiceChannel.id !== serverQueue.voiceChannel.id) {
+            return interaction.reply({ content: '❌ Anda harus berada di voice channel yang sama dengan bot untuk menggunakan tombol!', ephemeral: true });
+        }
+
+        try {
+            switch (interaction.customId) {
+                case 'music_pause_resume':
+                    if (serverQueue.player.state.status === 'paused') {
+                        serverQueue.player.unpause();
+                        await interaction.reply({ content: '▶️ Musik dilanjutkan!', ephemeral: true });
+                    } else {
+                        serverQueue.player.pause();
+                        await interaction.reply({ content: '⏸️ Musik dijeda!', ephemeral: true });
+                    }
+                    break;
+                case 'music_skip':
+                    serverQueue.player.stop();
+                    await interaction.reply({ content: '⏭️ Lagu dilewati!', ephemeral: true });
+                    break;
+                case 'music_stop':
+                    serverQueue.songs = [];
+                    serverQueue.player.stop();
+                    if (serverQueue.connection) {
+                        try { serverQueue.connection.destroy(); } catch {}
+                    }
+                    client.queue.delete(interaction.guildId);
+                    await interaction.reply({ content: '⏹️ Pemutaran musik dihentikan dan bot keluar!', ephemeral: true });
+                    break;
+                case 'music_vol_down':
+                    serverQueue.volume = Math.max(0.1, serverQueue.volume - 0.1);
+                    if (serverQueue.audioResource && serverQueue.audioResource.volume) {
+                        serverQueue.audioResource.volume.setVolume(serverQueue.volume);
+                    }
+                    await interaction.reply({ content: `🔉 Volume diturunkan ke: **${Math.round(serverQueue.volume * 100)}%**`, ephemeral: true });
+                    break;
+                case 'music_vol_up':
+                    serverQueue.volume = Math.min(1.0, serverQueue.volume + 0.1);
+                    if (serverQueue.audioResource && serverQueue.audioResource.volume) {
+                        serverQueue.audioResource.volume.setVolume(serverQueue.volume);
+                    }
+                    await interaction.reply({ content: `🔊 Volume dinaikkan ke: **${Math.round(serverQueue.volume * 100)}%**`, ephemeral: true });
+                    break;
+                default:
+                    await interaction.reply({ content: '❌ Perintah tidak dikenal.', ephemeral: true });
+            }
+        } catch (err) {
+            console.error('[Discord Button Interaction] Error:', err);
+            try {
+                await interaction.reply({ content: '❌ Terjadi kesalahan saat memproses tombol.', ephemeral: true });
+            } catch {}
         }
     });
 
