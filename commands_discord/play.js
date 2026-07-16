@@ -39,7 +39,8 @@ export default {
         const ytValidate = play.yt_validate(query);
 
         // 1. Handle Spotify Links
-        if (play.sp_validate(query)) {
+        const isSpotifyLink = query.includes('spotify.com') && play.sp_validate(query);
+        if (isSpotifyLink) {
             const hasKeys = !!(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET);
             const isTrack = query.includes('/track/');
 

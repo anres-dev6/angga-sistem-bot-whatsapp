@@ -67,8 +67,53 @@ if (!token) {
         }
     }
 
-    client.once('ready', () => {
+    const slashCommands = [
+        {
+            name: 'play',
+            description: 'Memutar lagu dari YouTube/SoundCloud/Spotify di Voice Channel',
+            options: [
+                {
+                    name: 'query',
+                    description: 'Judul lagu atau link (YouTube/Spotify/SoundCloud)',
+                    type: 3, // STRING
+                    required: true
+                }
+            ]
+        },
+        {
+            name: 'skip',
+            description: 'Melewati lagu yang sedang diputar ke antrean berikutnya'
+        },
+        {
+            name: 'stop',
+            description: 'Menghentikan lagu, menghapus antrean, dan keluar dari voice channel'
+        },
+        {
+            name: 'queue',
+            description: 'Menampilkan daftar antrean lagu saat ini'
+        },
+        {
+            name: 'volume',
+            description: 'Mengatur volume suara (1-100)',
+            options: [
+                {
+                    name: 'jumlah',
+                    description: 'Tingkat volume dari 1 hingga 100',
+                    type: 4, // INTEGER
+                    required: false
+                }
+            ]
+        }
+    ];
+
+    client.once('ready', async () => {
         console.log(`🚀 [Discord] Bot Discord berhasil dijalankan sebagai ${client.user.tag}!`);
+        try {
+            await client.application.commands.set(slashCommands);
+            console.log('[Discord] Registered Slash Commands successfully!');
+        } catch (err) {
+            console.error('[Discord] Failed to register slash commands:', err);
+        }
     });
 
     client.on('messageCreate', async (message) => {
@@ -79,8 +124,15 @@ if (!token) {
         const prefixUsed = allowedPrefixes.find(p => message.content.startsWith(p));
         if (!prefixUsed) return;
 
+        // If it starts with / but matches a registered slash command, ignore it in messageCreate
+        // to avoid double triggering if the user triggers a real slash command in client
         const args = message.content.slice(prefixUsed.length).trim().split(/ +/);
         const commandName = args.shift().toLowerCase();
+
+        // If prefix is / and the command name matches one of the slash commands, skip text trigger
+        if (prefixUsed === '/' && ['play', 'skip', 'stop', 'queue', 'volume'].includes(commandName)) {
+            return;
+        }
 
         // Find command by name or aliases
         const command = client.commands.get(commandName) || 
@@ -89,75 +141,134 @@ if (!token) {
         if (!command) return;
 
         try {
-            console.log(`[Discord] Command run: ${prefixUsed}${commandName} by ${message.author.tag} in ${message.guild.name}`);
+            console.log(`[Discord Message] Command run: ${prefixUsed}${commandName} by ${message.author.tag} in ${message.guild.name}`);
             await command.run(client, message, args, client.queue);
         } catch (error) {
-            console.error(`[Discord] Error executing command ${commandName}:`, error);
+            console.error(`[Discord Message] Error executing command ${commandName}:`, error);
             message.reply('❌ Terjadi kesalahan saat menjalankan perintah tersebut!');
         }
     });
 
-    // Listen for Button Interactions (Music Controls)
+    // Listen for interactions (Slash Commands & Button Controls)
     client.on('interactionCreate', async (interaction) => {
-        if (!interaction.isButton()) return;
-        if (!interaction.customId.startsWith('music_')) return;
+        // 1. Handle Slash Commands
+        if (interaction.isChatInputCommand()) {
+            const { commandName } = interaction;
+            const command = client.commands.get(commandName);
+            if (!command) return;
 
-        const serverQueue = client.queue.get(interaction.guildId);
-        if (!serverQueue) {
-            return interaction.reply({ content: '❌ Tidak ada musik yang sedang diputar!', ephemeral: true });
-        }
-
-        const voiceChannel = interaction.member.voice.channel;
-        if (!voiceChannel || voiceChannel.id !== serverQueue.voiceChannel.id) {
-            return interaction.reply({ content: '❌ Anda harus berada di voice channel yang sama dengan bot untuk menggunakan tombol!', ephemeral: true });
-        }
-
-        try {
-            switch (interaction.customId) {
-                case 'music_pause_resume':
-                    if (serverQueue.player.state.status === 'paused') {
-                        serverQueue.player.unpause();
-                        await interaction.reply({ content: '▶️ Musik dilanjutkan!', ephemeral: true });
-                    } else {
-                        serverQueue.player.pause();
-                        await interaction.reply({ content: '⏸️ Musik dijeda!', ephemeral: true });
-                    }
-                    break;
-                case 'music_skip':
-                    serverQueue.player.stop();
-                    await interaction.reply({ content: '⏭️ Lagu dilewati!', ephemeral: true });
-                    break;
-                case 'music_stop':
-                    serverQueue.songs = [];
-                    serverQueue.player.stop();
-                    if (serverQueue.connection) {
-                        try { serverQueue.connection.destroy(); } catch {}
-                    }
-                    client.queue.delete(interaction.guildId);
-                    await interaction.reply({ content: '⏹️ Pemutaran musik dihentikan dan bot keluar!', ephemeral: true });
-                    break;
-                case 'music_vol_down':
-                    serverQueue.volume = Math.max(0.1, serverQueue.volume - 0.1);
-                    if (serverQueue.audioResource && serverQueue.audioResource.volume) {
-                        serverQueue.audioResource.volume.setVolume(serverQueue.volume);
-                    }
-                    await interaction.reply({ content: `🔉 Volume diturunkan ke: **${Math.round(serverQueue.volume * 100)}%**`, ephemeral: true });
-                    break;
-                case 'music_vol_up':
-                    serverQueue.volume = Math.min(1.0, serverQueue.volume + 0.1);
-                    if (serverQueue.audioResource && serverQueue.audioResource.volume) {
-                        serverQueue.audioResource.volume.setVolume(serverQueue.volume);
-                    }
-                    await interaction.reply({ content: `🔊 Volume dinaikkan ke: **${Math.round(serverQueue.volume * 100)}%**`, ephemeral: true });
-                    break;
-                default:
-                    await interaction.reply({ content: '❌ Perintah tidak dikenal.', ephemeral: true });
+            // Check voice channel
+            const voiceChannel = interaction.member.voice.channel;
+            if (commandName === 'play' && !voiceChannel) {
+                return interaction.reply({ content: '❌ Anda harus bergabung ke voice channel terlebih dahulu!', ephemeral: true });
             }
-        } catch (err) {
-            console.error('[Discord Button Interaction] Error:', err);
+
+            let args = [];
+            if (commandName === 'play') {
+                const query = interaction.options.getString('query');
+                args = [query];
+            } else if (commandName === 'volume') {
+                const vol = interaction.options.getInteger('jumlah');
+                if (vol !== null) args = [vol.toString()];
+            }
+
+            // Mock message object to reuse command module code
+            const mockMessage = {
+                guild: interaction.guild,
+                member: interaction.member,
+                channel: interaction.channel,
+                reply: async (content) => {
+                    const cleanContent = typeof content === 'object' && content.text ? content.text : content;
+                    if (interaction.deferred || interaction.replied) {
+                        return interaction.followUp(cleanContent);
+                    }
+                    return interaction.reply(cleanContent);
+                }
+            };
+
             try {
-                await interaction.reply({ content: '❌ Terjadi kesalahan saat memproses tombol.', ephemeral: true });
-            } catch {}
+                if (commandName === 'play') {
+                    // Defer reply because searching takes time
+                    await interaction.deferReply();
+                    mockMessage.reply = async (content) => {
+                        const cleanContent = typeof content === 'object' && content.text ? content.text : content;
+                        return interaction.editReply(cleanContent);
+                    };
+                }
+                console.log(`[Discord Slash] Command run: /${commandName} by ${interaction.user.tag} in ${interaction.guild.name}`);
+                await command.run(client, mockMessage, args, client.queue);
+            } catch (err) {
+                console.error(`[Discord Slash Command] Error running ${commandName}:`, err);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.followUp({ content: '❌ Terjadi kesalahan saat menjalankan command.', ephemeral: true });
+                } else {
+                    await interaction.reply({ content: '❌ Terjadi kesalahan saat menjalankan command.', ephemeral: true });
+                }
+            }
+            return;
+        }
+
+        // 2. Handle Button Interactions
+        if (interaction.isButton()) {
+            if (!interaction.customId.startsWith('music_')) return;
+
+            const serverQueue = client.queue.get(interaction.guildId);
+            if (!serverQueue) {
+                return interaction.reply({ content: '❌ Tidak ada musik yang sedang diputar!', ephemeral: true });
+            }
+
+            const voiceChannel = interaction.member.voice.channel;
+            if (!voiceChannel || voiceChannel.id !== serverQueue.voiceChannel.id) {
+                return interaction.reply({ content: '❌ Anda harus berada di voice channel yang sama dengan bot untuk menggunakan tombol!', ephemeral: true });
+            }
+
+            try {
+                switch (interaction.customId) {
+                    case 'music_pause_resume':
+                        if (serverQueue.player.state.status === 'paused') {
+                            serverQueue.player.unpause();
+                            await interaction.reply({ content: '▶️ Musik dilanjutkan!', ephemeral: true });
+                        } else {
+                            serverQueue.player.pause();
+                            await interaction.reply({ content: '⏸️ Musik dijeda!', ephemeral: true });
+                        }
+                        break;
+                    case 'music_skip':
+                        serverQueue.player.stop();
+                        await interaction.reply({ content: '⏭️ Lagu dilewati!', ephemeral: true });
+                        break;
+                    case 'music_stop':
+                        serverQueue.songs = [];
+                        serverQueue.player.stop();
+                        if (serverQueue.connection) {
+                            try { serverQueue.connection.destroy(); } catch {}
+                        }
+                        client.queue.delete(interaction.guildId);
+                        await interaction.reply({ content: '⏹️ Pemutaran musik dihentikan dan bot keluar!', ephemeral: true });
+                        break;
+                    case 'music_vol_down':
+                        serverQueue.volume = Math.max(0.1, serverQueue.volume - 0.1);
+                        if (serverQueue.audioResource && serverQueue.audioResource.volume) {
+                            serverQueue.audioResource.volume.setVolume(serverQueue.volume);
+                        }
+                        await interaction.reply({ content: `🔉 Volume diturunkan ke: **${Math.round(serverQueue.volume * 100)}%**`, ephemeral: true });
+                        break;
+                    case 'music_vol_up':
+                        serverQueue.volume = Math.min(1.0, serverQueue.volume + 0.1);
+                        if (serverQueue.audioResource && serverQueue.audioResource.volume) {
+                            serverQueue.audioResource.volume.setVolume(serverQueue.volume);
+                        }
+                        await interaction.reply({ content: `🔊 Volume dinaikkan ke: **${Math.round(serverQueue.volume * 100)}%**`, ephemeral: true });
+                        break;
+                    default:
+                        await interaction.reply({ content: '❌ Perintah tidak dikenal.', ephemeral: true });
+                }
+            } catch (err) {
+                console.error('[Discord Button Interaction] Error:', err);
+                try {
+                    await interaction.reply({ content: '❌ Terjadi kesalahan saat memproses tombol.', ephemeral: true });
+                } catch {}
+            }
         }
     });
 
