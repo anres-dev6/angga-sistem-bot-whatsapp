@@ -485,8 +485,10 @@ if (!token) {
                 }
             }
             if (botCommands.length > 0) {
-                await bot.telegram.setMyCommands(botCommands);
-                console.log(`[Telegram] Registered ${botCommands.length} commands in Telegram menu.`);
+                // Telegram has a strict maximum limit of 100 commands in setMyCommands menu
+                const slicedCommands = botCommands.slice(0, 100);
+                await bot.telegram.setMyCommands(slicedCommands);
+                console.log(`[Telegram] Registered ${slicedCommands.length} commands in Telegram menu.`);
             }
         } catch (menuErr) {
             console.error("[Telegram] Failed to set bot commands menu:", menuErr);

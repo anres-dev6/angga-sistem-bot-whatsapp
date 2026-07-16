@@ -1,5 +1,6 @@
 import { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } from '@discordjs/voice';
 import play from 'play-dl';
+import fetch from 'node-fetch';
 
 function formatSec(seconds) {
     const h = Math.floor(seconds / 3600);
@@ -38,44 +39,77 @@ export default {
 
         // 1. Handle Spotify Links
         if (play.sp_validate(query)) {
-            try {
-                const spData = await play.spotify(query);
-                
-                if (spData.type === 'track') {
-                    // Resolve single Spotify track immediately
-                    const searchResult = await play.search(`${spData.name} ${spData.artists.map(a => a.name).join(' ')}`, { limit: 1 });
-                    if (searchResult.length > 0) {
+            const hasKeys = !!(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET);
+            const isTrack = query.includes('/track/');
+
+            // Keyless flow for single tracks
+            if (isTrack && !hasKeys) {
+                try {
+                    console.log(`[Spotify Loader] Keyless lookup for single track: ${query}`);
+                    const apiUrl = `https://api.siputzx.my.id/api/d/spotifyv2?url=${encodeURIComponent(query)}`;
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
+                    
+                    const data = await response.json();
+                    if (data.status && data.data && data.data.download) {
                         songsToAdd.push({
-                            title: spData.name,
-                            url: searchResult[0].url,
-                            duration: searchResult[0].durationRaw || formatMs(spData.duration_ms),
+                            title: `${data.data.title} - ${data.data.artist || 'Spotify'}`,
+                            url: data.data.download,
+                            duration: 'Unknown',
                             source: 'spotify',
                             resolved: true
                         });
+                    } else {
+                        throw new Error('API returned invalid/empty download link');
                     }
-                } else if (spData.type === 'playlist' || spData.type === 'album') {
-                    isPlaylist = true;
-                    playlistName = spData.name;
-                    const tracks = spData.tracks.items || spData.tracks;
-                    
-                    const totalMs = tracks.reduce((acc, t) => acc + (t.duration_ms || 0), 0);
-                    totalDurationStr = formatMs(totalMs);
-
-                    // Add all tracks as placeholders to secure the queue order instantly
-                    tracks.forEach(track => {
-                        songsToAdd.push({
-                            title: track.name,
-                            artist: track.artists ? track.artists.map(a => a.name).join(' ') : '',
-                            url: null,
-                            duration: formatMs(track.duration_ms),
-                            source: 'spotify',
-                            resolved: false
-                        });
-                    });
+                } catch (err) {
+                    console.error('[Spotify Loader] Keyless lookup failed:', err.message);
+                    return message.reply('❌ Gagal memuat metadata Spotify. Pastikan link track Spotify Anda valid atau atur `SPOTIFY_CLIENT_ID` & `SPOTIFY_CLIENT_SECRET` di Railway.');
                 }
-            } catch (err) {
-                console.error('[Spotify Loader] Error:', err);
-                return message.reply('❌ Gagal memuat data dari Spotify.');
+            } 
+            // Credential-based flow (playlists/albums or fallback single tracks)
+            else {
+                if (!hasKeys) {
+                    return message.reply('❌ Untuk memutar **Playlist/Album Spotify**, Anda wajib mendaftarkan Client ID & Client Secret di Railway/Environment Variables sebagai `SPOTIFY_CLIENT_ID` dan `SPOTIFY_CLIENT_SECRET`!');
+                }
+
+                try {
+                    const spData = await play.spotify(query);
+                    
+                    if (spData.type === 'track') {
+                        const searchResult = await play.search(`${spData.name} ${spData.artists.map(a => a.name).join(' ')}`, { limit: 1 });
+                        if (searchResult.length > 0) {
+                            songsToAdd.push({
+                                title: spData.name,
+                                url: searchResult[0].url,
+                                duration: searchResult[0].durationRaw || formatMs(spData.duration_ms),
+                                source: 'spotify',
+                                resolved: true
+                            });
+                        }
+                    } else if (spData.type === 'playlist' || spData.type === 'album') {
+                        isPlaylist = true;
+                        playlistName = spData.name;
+                        const tracks = spData.tracks.items || spData.tracks;
+                        
+                        const totalMs = tracks.reduce((acc, t) => acc + (t.duration_ms || 0), 0);
+                        totalDurationStr = formatMs(totalMs);
+
+                        tracks.forEach(track => {
+                            songsToAdd.push({
+                                title: track.name,
+                                artist: track.artists ? track.artists.map(a => a.name).join(' ') : '',
+                                url: null,
+                                duration: formatMs(track.duration_ms),
+                                source: 'spotify',
+                                resolved: false
+                            });
+                        });
+                    }
+                } catch (err) {
+                    console.error('[Spotify Loader] Error with credentials:', err);
+                    return message.reply('❌ Gagal memuat data dari Spotify menggunakan API key.');
+                }
             }
         }
         // 2. Handle YouTube Playlists
