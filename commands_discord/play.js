@@ -39,9 +39,6 @@ export default {
         // 1. Handle Spotify Links
         if (play.sp_validate(query)) {
             try {
-                if (play.is_expired()) {
-                    await play.so_api_key();
-                }
                 const spData = await play.spotify(query);
                 
                 if (spData.type === 'track') {
