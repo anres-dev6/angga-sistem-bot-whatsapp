@@ -189,6 +189,13 @@ export default async function handleMessage(sock, msg) {
             return;
         }
 
+        // Check if button click is for Interactive AutoDL
+        if (buttonId && buttonId.startsWith('iadl_')) {
+            const { handleInteractiveResponse } = await import('../utils/interactiveAutoDL.js');
+            const handled = await handleInteractiveResponse(sock, m, buttonId);
+            if (handled) return;
+        }
+
         // If not triggered by buttonId, check message body or buttonText
         if (!triggerMp3) {
             const checkText = (body || buttonText || "").trim().toLowerCase();

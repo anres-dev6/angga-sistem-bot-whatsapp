@@ -174,7 +174,7 @@ export default {
         const from = m.key.remoteJid;
         const game = global.cerdasGame[from];
 
-        if (!game || game.isAnswered) return false;
+        if (!game) return false;
 
         const sender = m.key.participant || m.participant || m.key.remoteJid;
         const senderNumber = sender.split('@')[0];
@@ -188,23 +188,10 @@ export default {
             return false; // Ignore other messages
         }
 
-        // Mark as answered to prevent double answers/questions
-        game.isAnswered = true;
-
-        // Clear timers immediately
-        if (game.timer) {
-            clearTimeout(game.timer);
-            game.timer = null;
-        }
-        if (game.countdownInterval) {
-            clearInterval(game.countdownInterval);
-            game.countdownInterval = null;
-        }
-
-        // Initialize participant if first time answering
+        // Check if this participant already answered this specific question
+        // Initialize participant in state if they don't exist yet
         if (!game.participants[sender]) {
             const name = m.pushName || senderNumber;
-
             game.participants[sender] = {
                 jid: sender,
                 name: name,
@@ -214,12 +201,24 @@ export default {
         }
 
         const participant = game.participants[sender];
+        const alreadyAnswered = participant.answers.some(a => a.questionNum === game.currentIndex + 1);
+        if (alreadyAnswered) {
+            // React with ⚠️ to warn they have already answered
+            try {
+                await sock.sendMessage(from, {
+                    react: { text: '⚠️', key: m.key }
+                });
+            } catch (e) {}
+            return true;
+        }
 
         // Check answer
         const isCorrect = (userAns === correctAnswerLetter);
-
-        const correctOption = currentQ.semua_jawaban.find(opt => Object.keys(opt)[0] === correctAnswerLetter);
-        const correctText = correctOption ? correctOption[correctAnswerLetter] : correctAnswerLetter;
+        const correctOption = currentQ.semua_jawaban.find(opt => {
+            const key = Object.keys(opt)[0];
+            return key.toLowerCase() === correctAnswerLetter;
+        });
+        const correctText = correctOption ? Object.values(correctOption)[0] : correctAnswerLetter;
 
         participant.answers.push({
             questionNum: game.currentIndex + 1,
@@ -232,7 +231,7 @@ export default {
             participant.score++;
         }
 
-        // Send reaction to confirm receipt
+        // Send reaction to confirm receipt of the answer
         try {
             await sock.sendMessage(from, {
                 react: {
@@ -241,33 +240,6 @@ export default {
                 }
             });
         } catch (e) {}
-
-        // Send result message and move to next question
-        let resultText = '';
-        if (isCorrect) {
-            resultText = `🎉 *Benar!* @${senderNumber} mendapatkan poin.\nJawabannya: *${correctAnswerLetter.toUpperCase()}. ${correctText}*`;
-        } else {
-            resultText = `❌ *Salah!* Jawabannya adalah: *${correctAnswerLetter.toUpperCase()}. ${correctText}*`;
-        }
-
-        try {
-            // Edit original question to show result (and remove buttons)
-            await sock.sendMessage(from, {
-                text: (game.questionText || '') + `\n⏱️ Soal Terjawab oleh @${senderNumber}!\n\n${resultText}`,
-                edit: game.questionMessageKey
-            });
-        } catch (e) {
-            // Fallback to sending new message if edit fails
-            await sock.sendMessage(from, {
-                text: resultText,
-                mentions: [sender]
-            });
-        }
-
-        // Move to next question after a short delay
-        setTimeout(async () => {
-            await nextQuestion(sock, from, m);
-        }, 2500);
 
         return true;
     }
@@ -353,21 +325,90 @@ async function sendQuestionWithTimer(sock, from, m) {
         }
     }, 1000);
 
-    // Main timer
+    // Main timer - runs for 15s to let multiple users answer
     game.timer = setTimeout(async () => {
         if (game.countdownInterval) clearInterval(game.countdownInterval);
-
-        try {
-            await sock.sendMessage(from, {
-                text: baseQuestionText + `⏱️ Waktu habis! ⏰`,
-                edit: sentMsg.key
-            });
-        } catch (error) {
-            console.error('[Cerdas] Timeout error:', error);
-        }
-
-        await nextQuestion(sock, from, m);
+        await handleQuestionTimeout(sock, from, m);
     }, 15000);
+}
+
+/**
+ * Handle question timeout: show who answered and current scores, then move to next
+ */
+async function handleQuestionTimeout(sock, from, m) {
+    const game = global.cerdasGame[from];
+    if (!game) return;
+
+    const currentQ = game.questions[game.currentIndex];
+    const questionNum = game.currentIndex + 1;
+    const totalQuestions = game.questions.length;
+    const correctAnswerLetter = currentQ.jawaban_benar.toLowerCase().trim();
+    const correctOption = currentQ.semua_jawaban.find(opt => {
+        const key = Object.keys(opt)[0];
+        return key.toLowerCase() === correctAnswerLetter;
+    });
+    const correctText = correctOption ? Object.values(correctOption)[0] : correctAnswerLetter;
+
+    // Compile list of answers for this specific question
+    const participants = Object.values(game.participants);
+    const answersThisQuestion = [];
+
+    participants.forEach(p => {
+        const ans = p.answers.find(a => a.questionNum === questionNum);
+        if (ans) {
+            answersThisQuestion.push({
+                name: p.name,
+                jid: p.jid,
+                userAnswer: ans.userAnswer,
+                isCorrect: ans.isCorrect
+            });
+        }
+    });
+
+    let summaryText = `⏱️ *Waktu Habis!* ⏰\n\n` +
+        `✅ *Jawaban Benar:* ${correctAnswerLetter.toUpperCase()}. ${correctText}\n\n`;
+
+    if (answersThisQuestion.length > 0) {
+        summaryText += `📝 *Hasil Jawaban Soal Ini:*\n`;
+        answersThisQuestion.forEach(ans => {
+            const icon = ans.isCorrect ? '✅' : '❌';
+            summaryText += `${icon} @${ans.jid.split('@')[0]} : Pilihan ${ans.userAnswer}\n`;
+        });
+    } else {
+        summaryText += `⚠️ *Tidak ada yang menjawab soal ini!*\n`;
+    }
+
+    // Add current scoreboard / standings
+    if (participants.length > 0) {
+        summaryText += `\n📊 *Skor Sementara:*\n`;
+        // Sort standings copy
+        const standings = [...participants].sort((a, b) => b.score - a.score);
+        standings.forEach((p, idx) => {
+            summaryText += `${idx + 1}. @${p.jid.split('@')[0]} : ${p.score}/${totalQuestions} poin\n`;
+        });
+    }
+
+    const mentions = participants.map(p => p.jid);
+
+    try {
+        // Edit the original question message to show the results and scores (clears buttons)
+        await sock.sendMessage(from, {
+            text: game.questionText + `\n${summaryText}`,
+            mentions: mentions,
+            edit: game.questionMessageKey
+        });
+    } catch (err) {
+        // Fallback if edit fails
+        await sock.sendMessage(from, {
+            text: summaryText,
+            mentions: mentions
+        });
+    }
+
+    // Delay 3.5 seconds before moving to next question
+    setTimeout(async () => {
+        await nextQuestion(sock, from, m);
+    }, 3500);
 }
 
 // Helper function to move to next question or end game
@@ -392,21 +433,7 @@ async function nextQuestion(sock, from, m) {
     if (game.currentIndex >= game.questions.length) {
         await endGame(sock, from, m);
     } else {
-        // Check if anyone answered the immediate previous question
-        const prevQuestionNum = game.currentIndex; // currentIndex was just incremented, so it matches prevQuestionNum (1-based index)
-        const participants = Object.values(game.participants);
-        const anyoneAnswered = participants.some(p => p.answers.some(a => a.questionNum === prevQuestionNum));
-
-        // If no one answered the previous question, end the game
-        if (!anyoneAnswered && game.currentIndex > 0) {
-            await sock.sendMessage(from, {
-                text: `⏰ *Game Dihentikan*\n\nTidak ada yang menjawab soal.\nMain lagi yuk! .cerdas`
-            });
-            delete global.cerdasGame[from];
-            return;
-        }
-
-        // Send next question
+        // Go to next question (we no longer end early even if no one answered)
         await sendQuestionWithTimer(sock, from, m);
     }
 }
@@ -427,13 +454,12 @@ async function endGame(sock, from, m) {
     const totalQuestions = game.questions.length;
     const timeTaken = Math.floor((Date.now() - game.startTime) / 1000);
 
-    // Build leaderboard
     const participants = Object.values(game.participants);
 
-    // Check if no one participated
+    // If no one participated throughout the game
     if (participants.length === 0) {
         await sock.sendMessage(from, {
-            text: `⏰ *Game Selesai*\n\nTidak ada yang menjawab soal.\nMain lagi yuk! .cerdas`
+            text: `🏁 *GAME SELESAI!*\n\nTidak ada yang berpartisipasi dalam kuis ini.\nMain lagi yuk! .cerdas`
         });
         delete global.cerdasGame[from];
         return;
@@ -441,7 +467,7 @@ async function endGame(sock, from, m) {
 
     participants.sort((a, b) => b.score - a.score);
 
-    let leaderboard = '🏆 *LEADERBOARD*\n\n';
+    let leaderboard = '🏆 *LEADERBOARD AKHIR*\n\n';
     const mentions = [];
 
     participants.forEach((p, idx) => {
@@ -458,18 +484,20 @@ async function endGame(sock, from, m) {
 
     game.questions.forEach((q, qIdx) => {
         const correctLetter = q.jawaban_benar.toLowerCase();
-        const correctOption = q.semua_jawaban.find(opt => Object.keys(opt)[0] === correctLetter);
-        const correctText = correctOption ? correctOption[correctLetter] : correctLetter;
+        const correctOption = q.semua_jawaban.find(opt => {
+            const key = Object.keys(opt)[0];
+            return key.toLowerCase() === correctLetter;
+        });
+        const correctText = correctOption ? Object.values(correctOption)[0] : correctLetter;
 
         detailText += `Soal ${qIdx + 1}:\n`;
         detailText += `✅ Jawaban: ${correctLetter.toUpperCase()}. ${correctText}\n\n`;
 
-        // Show who answered what
         participants.forEach(p => {
             const answer = p.answers.find(a => a.questionNum === qIdx + 1);
             if (answer) {
                 const icon = answer.isCorrect ? '✅' : '❌';
-                detailText += `${icon} @${p.jid.split('@')[0]}: ${answer.userAnswer}\n`;
+                detailText += `${icon} @${p.jid.split('@')[0]} : ${answer.userAnswer}\n`;
             }
         });
         detailText += '\n';

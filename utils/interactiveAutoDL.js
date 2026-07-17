@@ -545,25 +545,27 @@ export async function handleDirectDownloadAction(sock, from, url, downloadType, 
  * @param {object} m - Objek pesan dari Baileys
  * @returns {Promise<boolean>} True jika event ditangani, false jika tidak
  */
-export async function handleInteractiveResponse(sock, m) {
+export async function handleInteractiveResponse(sock, m, selectedIdArg = null) {
     const from = m.key.remoteJid;
     
-    // Cek apakah pesan bertipe interactiveResponseMessage (tombol diklik)
-    if (!m.message?.interactiveResponseMessage) return false;
+    let selectedId = selectedIdArg;
 
-    const interactiveResponse = m.message.interactiveResponseMessage;
-    const nativeFlowResponse = interactiveResponse.nativeFlowResponseMessage;
+    if (!selectedId) {
+        // Fallback to checking m.message directly
+        const interactiveResponse = m.message?.interactiveResponseMessage;
+        const nativeFlowResponse = interactiveResponse?.nativeFlowResponseMessage;
+        if (nativeFlowResponse?.paramsJson) {
+            try {
+                const params = JSON.parse(nativeFlowResponse.paramsJson);
+                selectedId = params.id;
+            } catch {}
+        }
+    }
 
-    // Pastikan paramsJson berisi ID tombol yang diklik
-    if (!nativeFlowResponse?.paramsJson) return false;
+    // Memvalidasi prefix ID tombol milik modul kita
+    if (!selectedId || !selectedId.startsWith('iadl_')) return false;
 
     try {
-        const params = JSON.parse(nativeFlowResponse.paramsJson);
-        const selectedId = params.id; // Format ID: iadl_<shortId>_<type>_<quality>
-
-        // Memvalidasi prefix ID tombol milik modul kita
-        if (!selectedId || !selectedId.startsWith('iadl_')) return false;
-
         console.log('[Interactive AutoDL] Tombol ditekan dengan ID:', selectedId);
 
         const parts = selectedId.split('_');
