@@ -620,14 +620,31 @@ export async function handleInteractiveResponse(sock, m, selectedIdArg = null) {
 
             await sock.sendMessage(from, { text: infoText }, { quoted: m });
 
-            // Kirim semua slide secara berurutan dan persis jumlahnya
+            // Untuk private chat: test dulu apakah bot bisa kirim ke JID tsb
+            if (action === 'private' && targetJid !== from) {
+                try {
+                    await sock.sendMessage(targetJid, {
+                        text: `📥 *${images.length} slide* sedang dikirim ke sini dari permintaan Anda di grup...`
+                    });
+                } catch (testErr) {
+                    console.error('[Interactive AutoDL] Private chat pre-test failed:', testErr.message);
+                    await sock.sendMessage(from, {
+                        text: `⚠️ *Gagal kirim ke Private Chat!*\n\nBot tidak bisa mengirim pesan ke private chat Anda.\n\n💡 Solusi: Mulai chat dulu dengan bot, lalu coba lagi.`
+                    }, { quoted: m });
+                    return true;
+                }
+            }
+
+            // Kirim semua slide secara berurutan — PISAHKAN download dan send agar tidak duplikat
+            let sentCount = 0;
             for (let i = 0; i < images.length; i++) {
                 const img = images[i];
-                let imageBuffer = null;
 
+                // STEP 1: Resolve image payload (download buffer atau pakai URL langsung)
+                let imagePayload = null;
                 try {
                     if (Buffer.isBuffer(img)) {
-                        imageBuffer = img;
+                        imagePayload = img;
                     } else if (typeof img === 'string') {
                         const axios = (await import('axios')).default;
                         console.log(`[Interactive AutoDL] Fetching slide ${i + 1}/${images.length} from: ${img}`);
@@ -636,47 +653,56 @@ export async function handleInteractiveResponse(sock, m, selectedIdArg = null) {
                             headers: {
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                             },
-                            timeout: 15000
+                            timeout: 20000
                         });
-                        imageBuffer = Buffer.from(res.data);
+                        imagePayload = Buffer.from(res.data);
                     }
+                } catch (dlErr) {
+                    // Download buffer gagal → pakai URL langsung sebagai fallback
+                    console.warn(`[Interactive AutoDL] Buffer download failed for slide ${i + 1}, using URL fallback:`, dlErr.message);
+                    imagePayload = typeof img === 'string' ? { url: img } : null;
+                }
 
-                    if (imageBuffer) {
-                        await sock.sendMessage(targetJid, {
-                            image: imageBuffer,
-                            caption: `Slide ${i + 1}/${images.length}`
-                        });
-                        console.log(`[Interactive AutoDL] Successfully sent slide ${i + 1}/${images.length} to ${targetJid}`);
-                    } else {
-                        throw new Error("Resolved image is neither a buffer nor a string url.");
-                    }
-                } catch (imgErr) {
-                    console.error(`[Interactive AutoDL] Failed to download or send slide ${i + 1}:`, imgErr.message);
-                    
-                    // Fallback to sending direct URL if buffer download failed
-                    try {
-                        const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
-                        await sock.sendMessage(targetJid, {
-                            image: imagePayload,
-                            caption: `Slide ${i + 1}/${images.length} (Fallback Link)`
-                        });
-                    } catch (fallbackErr) {
-                        console.error(`[Interactive AutoDL] Fallback send slide ${i + 1} also failed:`, fallbackErr.message);
+                if (!imagePayload) {
+                    console.error(`[Interactive AutoDL] No valid payload for slide ${i + 1}, skipping.`);
+                    continue;
+                }
+
+                // STEP 2: Kirim sekali saja — tidak ada fallback kirim ulang di sini
+                try {
+                    await sock.sendMessage(targetJid, {
+                        image: imagePayload,
+                        caption: `🖼️ ${i + 1} / ${images.length}`
+                    });
+                    sentCount++;
+                    console.log(`[Interactive AutoDL] Sent slide ${i + 1}/${images.length} to ${targetJid}`);
+                } catch (sendErr) {
+                    console.error(`[Interactive AutoDL] Send failed for slide ${i + 1}:`, sendErr.message);
+                    if (action === 'private') {
+                        await sock.sendMessage(from, {
+                            text: `⚠️ Gagal mengirim slide ${i + 1}/${images.length} ke private chat.`
+                        }).catch(() => {});
                     }
                 }
 
-                // Beri jeda kecil agar tidak spam/banned
-                await new Promise(r => setTimeout(r, 800));
+                // Jeda kecil agar tidak spam
+                await new Promise(r => setTimeout(r, 700));
             }
 
-            console.log(`[Interactive AutoDL] Finished sending all ${images.length} slides.`);
+            console.log(`[Interactive AutoDL] Done. Sent ${sentCount}/${images.length} slides to ${targetJid}`);
 
-            // Sukses mengirim, tawarkan MP3 download jika dari tiktok
+            // Kirim konfirmasi akhir di grup
+            await sock.sendMessage(from, {
+                text: `✅ Berhasil mengirim *${sentCount}/${images.length} slide* ke ${action === 'private' ? 'private chat Anda' : 'chat ini'}.`
+            }, { quoted: m });
+
+            // Tawarkan MP3 jika dari tiktok
             if (cachedEntry.platform === 'tiktok') {
                 await sendMp3ButtonOnly(sock, from, shortId, cachedEntry.platform);
             }
             return true;
         }
+
 
         if (downloadType === 'audio') {
             console.log('[Interactive AutoDL] Routing audio button click to mp3.js command');
