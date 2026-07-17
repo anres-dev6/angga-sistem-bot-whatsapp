@@ -176,7 +176,7 @@ export default {
 
         if (!game || game.isAnswered) return false;
 
-        const sender = m.key.participant || m.key.remoteJid;
+        const sender = m.key.participant || m.participant || m.key.remoteJid;
         const senderNumber = sender.split('@')[0];
         const currentQ = game.questions[game.currentIndex];
         const correctAnswerLetter = currentQ.jawaban_benar.toLowerCase().trim();
@@ -203,8 +203,7 @@ export default {
 
         // Initialize participant if first time answering
         if (!game.participants[sender]) {
-            const contact = await sock.onWhatsApp(sender);
-            const name = contact[0]?.notify || senderNumber;
+            const name = m.pushName || senderNumber;
 
             game.participants[sender] = {
                 jid: sender,
@@ -393,11 +392,12 @@ async function nextQuestion(sock, from, m) {
     if (game.currentIndex >= game.questions.length) {
         await endGame(sock, from, m);
     } else {
-        // Check if anyone answered the previous question
+        // Check if anyone answered the immediate previous question
+        const prevQuestionNum = game.currentIndex; // currentIndex was just incremented, so it matches prevQuestionNum (1-based index)
         const participants = Object.values(game.participants);
-        const anyoneAnswered = participants.some(p => p.answers.length > 0);
+        const anyoneAnswered = participants.some(p => p.answers.some(a => a.questionNum === prevQuestionNum));
 
-        // If no one answered at all, end the game
+        // If no one answered the previous question, end the game
         if (!anyoneAnswered && game.currentIndex > 0) {
             await sock.sendMessage(from, {
                 text: `⏰ *Game Dihentikan*\n\nTidak ada yang menjawab soal.\nMain lagi yuk! .cerdas`

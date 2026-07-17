@@ -63,8 +63,8 @@ export async function searchWikipedia(sock, jid, query, offset = 0) {
                 title: `Hasil Pencarian (Halaman ${pageNum})`,
                 rows: results.map((item, index) => ({
                     title: `${item.title}`,
-                    rowId: `wiki_select_${searchId}_${index}`,
-                    description: stripHtml(item.snippet).substring(0, 100) || 'Tidak ada pratinjau.'
+                    description: stripHtml(item.snippet).substring(0, 100) || 'Tidak ada pratinjau.',
+                    id: `wiki_select_${searchId}_${index}`
                 }))
             }
         ];
@@ -74,15 +74,15 @@ export async function searchWikipedia(sock, jid, query, offset = 0) {
         if (offset > 0) {
             navRows.push({
                 title: '⬅️ Halaman Sebelumnya',
-                rowId: `wiki_prev_${searchId}`,
-                description: `Kembali ke halaman ${pageNum - 1}`
+                description: `Kembali ke halaman ${pageNum - 1}`,
+                id: `wiki_prev_${searchId}`
             });
         }
         if (hasMore) {
             navRows.push({
                 title: 'Halaman Berikutnya ➡️',
-                rowId: `wiki_next_${searchId}`,
-                description: `Lanjut ke halaman ${pageNum + 1}`
+                description: `Lanjut ke halaman ${pageNum + 1}`,
+                id: `wiki_next_${searchId}`
             });
         }
 
@@ -94,11 +94,19 @@ export async function searchWikipedia(sock, jid, query, offset = 0) {
         }
 
         await sock.sendMessage(jid, {
-            text,
-            footer: 'Wikipedia Bahasa Indonesia',
+            text: text,
             title: 'Wikipedia Search',
-            buttonText: 'Pilih Artikel',
-            sections: sections
+            subtitle: 'Wikipedia Bahasa Indonesia',
+            footer: 'Wikipedia Bahasa Indonesia',
+            interactiveButtons: [
+                {
+                    name: 'single_select',
+                    buttonParamsJson: JSON.stringify({
+                        title: '📖 Pilih Artikel',
+                        sections: sections
+                    })
+                }
+            ]
         });
         
     } catch (err) {
