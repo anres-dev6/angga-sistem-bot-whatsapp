@@ -182,6 +182,13 @@ export default async function handleMessage(sock, msg) {
             }
         }
 
+        // Check if button click is for Wikipedia
+        if (buttonId && buttonId.startsWith('wiki_')) {
+            const { handleWikiButton } = await import('../utils/wikiHelper.js');
+            await handleWikiButton(sock, m, buttonId);
+            return;
+        }
+
         // If not triggered by buttonId, check message body or buttonText
         if (!triggerMp3) {
             const checkText = (body || buttonText || "").trim().toLowerCase();
@@ -1306,16 +1313,19 @@ export default async function handleMessage(sock, msg) {
         // =====================================
         //        Cek Jawaban CERDAS CERMAT
         // =====================================
-        if (global.cerdasGame && global.cerdasGame[from] && !body.startsWith(".")) {
-            // Skip if message is from bot itself
-            if (m.key.fromMe) return;
-
-            try {
-                const cerdasModule = await import('../commands/ai/cerdas.js');
-                const wasHandled = await cerdasModule.default.checkAnswer(sock, m, body);
-                if (wasHandled) return;
-            } catch (error) {
-                console.error('[Handler] Cerdas game error:', error);
+        if (global.cerdasGame && global.cerdasGame[from]) {
+            // Check if it's a button response for Cerdas Cermat
+            const isCCButton = buttonId && buttonId.startsWith('cc_');
+            const answer = isCCButton ? buttonId.replace('cc_', '') : body;
+            
+            if (answer && !m.key.fromMe) {
+                try {
+                    const cerdasModule = await import('../commands/ai/cerdas.js');
+                    const wasHandled = await cerdasModule.default.checkAnswer(sock, m, answer);
+                    if (wasHandled) return;
+                } catch (error) {
+                    console.error('[Handler] Cerdas game error:', error);
+                }
             }
         }
 

@@ -23,9 +23,8 @@ const stripHtml = (html) => {
 /**
  * Send or edit Wikipedia search results message
  */
-export async function searchWikipedia(sock, jid, query, offset = 0, editKey = null) {
+export async function searchWikipedia(sock, jid, query, offset = 0) {
     try {
-        // srlimit=3 matches WhatsApp's 5-button limit: 3 selects + 1 prev + 1 next = 5 buttons max
         const url = `https://id.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&srlimit=3&sroffset=${offset}`;
         console.log(`[Wiki Helper] Fetching results for "${query}", offset ${offset}...`);
         
@@ -37,11 +36,7 @@ export async function searchWikipedia(sock, jid, query, offset = 0, editKey = nu
         
         if (results.length === 0) {
             const emptyText = `❌ *Pencarian Tidak Ditemukan*\n\nArtikel dengan kata kunci *"${query}"* tidak ditemukan di Wikipedia Bahasa Indonesia.`;
-            if (editKey) {
-                await sock.sendMessage(jid, { text: emptyText, edit: editKey });
-            } else {
-                await sock.sendMessage(jid, { text: emptyText });
-            }
+            await sock.sendMessage(jid, { text: emptyText });
             return;
         }
 
@@ -61,88 +56,55 @@ export async function searchWikipedia(sock, jid, query, offset = 0, editKey = nu
 
         // Build result text
         const pageNum = Math.floor(offset / 3) + 1;
-        let text = `🔍 *HASIL PENCARIAN WIKIPEDIA*\n`;
-        text += `📝 Kata Kunci: *"${query}"*\n`;
-        text += `📄 Halaman: *${pageNum}*\n\n`;
+        const text = `🔍 *HASIL PENCARIAN WIKIPEDIA*\n\n📝 Kata Kunci: *"${query}"*\n📄 Halaman: *${pageNum}*\n\n💡 _Silakan klik tombol di bawah untuk melihat dan memilih artikel._`;
 
-        results.forEach((item, index) => {
-            const cleanSnippet = stripHtml(item.snippet);
-            text += `${index + 1}. *${item.title}*\n`;
-            text += `_${cleanSnippet || 'Tidak ada pratinjau.'}_\n\n`;
-        });
+        const sections = [
+            {
+                title: `Hasil Pencarian (Halaman ${pageNum})`,
+                rows: results.map((item, index) => ({
+                    title: `${item.title}`,
+                    rowId: `wiki_select_${searchId}_${index}`,
+                    description: stripHtml(item.snippet).substring(0, 100) || 'Tidak ada pratinjau.'
+                }))
+            }
+        ];
 
-        text += `💡 _Pilih nomor di bawah untuk membaca ringkasan artikel._`;
-
-        // Build interactive buttons
-        const buttons = [];
-        
-        // Row 1: Select article buttons (1 to results length)
-        for (let i = 0; i < results.length; i++) {
-            buttons.push({
-                name: "quick_reply",
-                buttonParamsJson: JSON.stringify({
-                    display_text: `[${i + 1}]`,
-                    id: `wiki_select_${searchId}_${i}`
-                })
-            });
-        }
-
-        // Row 2: Navigation buttons (Prev / Next)
+        // Add Navigation section if prev or next page is available
+        const navRows = [];
         if (offset > 0) {
-            buttons.push({
-                name: "quick_reply",
-                buttonParamsJson: JSON.stringify({
-                    display_text: "⬅️ Prev",
-                    id: `wiki_prev_${searchId}`
-                })
+            navRows.push({
+                title: '⬅️ Halaman Sebelumnya',
+                rowId: `wiki_prev_${searchId}`,
+                description: `Kembali ke halaman ${pageNum - 1}`
             });
         }
         if (hasMore) {
-            buttons.push({
-                name: "quick_reply",
-                buttonParamsJson: JSON.stringify({
-                    display_text: "Next ➡️",
-                    id: `wiki_next_${searchId}`
-                })
+            navRows.push({
+                title: 'Halaman Berikutnya ➡️',
+                rowId: `wiki_next_${searchId}`,
+                description: `Lanjut ke halaman ${pageNum + 1}`
             });
         }
 
-        const messageContent = {
-            viewOnceMessage: {
-                message: {
-                    interactiveMessage: {
-                        body: { text },
-                        footer: { text: "Wikipedia Bahasa Indonesia" },
-                        nativeFlowMessage: { buttons }
-                    }
-                }
-            }
-        };
-
-        if (editKey) {
-            const msg = generateWAMessageFromContent(jid, messageContent, {});
-            await sock.relayMessage(jid, {
-                protocolMessage: {
-                    key: editKey,
-                    type: 14,
-                    editedMessage: msg.message
-                }
-            }, {});
-        } else {
-            const msg = generateWAMessageFromContent(jid, messageContent, {});
-            await sock.relayMessage(jid, msg.message, {
-                messageId: msg.key.id
+        if (navRows.length > 0) {
+            sections.push({
+                title: 'Navigasi Halaman',
+                rows: navRows
             });
         }
+
+        await sock.sendMessage(jid, {
+            text,
+            footer: 'Wikipedia Bahasa Indonesia',
+            title: 'Wikipedia Search',
+            buttonText: 'Pilih Artikel',
+            sections: sections
+        });
         
     } catch (err) {
         console.error('[Wiki Helper] Search Error:', err);
         const errorText = `❌ *Gagal melakukan pencarian!*\n\n⚠️ Error: ${err.message || err}`;
-        if (editKey) {
-            await sock.sendMessage(jid, { text: errorText, edit: editKey });
-        } else {
-            await sock.sendMessage(jid, { text: errorText });
-        }
+        await sock.sendMessage(jid, { text: errorText });
     }
 }
 
@@ -162,37 +124,14 @@ export async function handleWikiButton(sock, m, selectedId) {
         }, { quoted: m });
     }
 
-    const contextInfo = m.message?.interactiveResponseMessage?.contextInfo;
-    const stanzaId = contextInfo?.stanzaId;
-
-    const editKey = stanzaId ? {
-        remoteJid: from,
-        id: stanzaId,
-        fromMe: true
-    } : null;
-
     try {
         if (action === 'prev') {
             const newOffset = Math.max(0, session.offset - 3);
-            if (editKey) {
-                await searchWikipedia(sock, from, session.query, newOffset, editKey).catch(async (e) => {
-                    console.log('[Wiki Helper] Edit page failed, sending new message:', e.message);
-                    await searchWikipedia(sock, from, session.query, newOffset, null);
-                });
-            } else {
-                await searchWikipedia(sock, from, session.query, newOffset, null);
-            }
+            await searchWikipedia(sock, from, session.query, newOffset);
         }
         else if (action === 'next') {
             const newOffset = session.offset + 3;
-            if (editKey) {
-                await searchWikipedia(sock, from, session.query, newOffset, editKey).catch(async (e) => {
-                    console.log('[Wiki Helper] Edit page failed, sending new message:', e.message);
-                    await searchWikipedia(sock, from, session.query, newOffset, null);
-                });
-            } else {
-                await searchWikipedia(sock, from, session.query, newOffset, null);
-            }
+            await searchWikipedia(sock, from, session.query, newOffset);
         }
         else if (action === 'select') {
             const index = parseInt(parts[3]);
@@ -217,7 +156,6 @@ export async function handleWikiButton(sock, m, selectedId) {
             text += `${extract}\n\n`;
             text += `🔗 *Link Artikel:* ${pageUrl}`;
 
-            // Send summary as a new message! This is robust and doesn't erase the search result
             await sock.sendMessage(from, { text }, { quoted: m });
         }
     } catch (err) {

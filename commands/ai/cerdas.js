@@ -255,9 +255,30 @@ async function sendQuestionWithTimer(sock, from, m) {
         `${currentQ.pertanyaan}\n\n` +
         `${optionsText}\n`;
 
+    const interactiveButtonsList = [
+        {
+            name: 'quick_reply',
+            buttonParamsJson: JSON.stringify({ display_text: 'A', id: 'cc_a' })
+        },
+        {
+            name: 'quick_reply',
+            buttonParamsJson: JSON.stringify({ display_text: 'B', id: 'cc_b' })
+        },
+        {
+            name: 'quick_reply',
+            buttonParamsJson: JSON.stringify({ display_text: 'C', id: 'cc_c' })
+        },
+        {
+            name: 'quick_reply',
+            buttonParamsJson: JSON.stringify({ display_text: 'D', id: 'cc_d' })
+        }
+    ];
+
     // Send initial message
     const sentMsg = await sock.sendMessage(from, {
-        text: baseQuestionText + `⏱️ Waktu: 15 detik\n💡 Ketik huruf jawaban (a/b/c/d)`
+        text: baseQuestionText + `⏱️ Waktu: 15 detik`,
+        footer: 'Cerdas Cermat - Pilih jawaban:',
+        interactiveButtons: interactiveButtonsList
     });
 
     game.questionStartTime = Date.now();
@@ -276,7 +297,9 @@ async function sendQuestionWithTimer(sock, from, m) {
         if (timeLeft > 0) {
             try {
                 await sock.sendMessage(from, {
-                    text: baseQuestionText + `⏱️ Waktu: ${timeLeft} detik\n💡 Ketik huruf jawaban (a/b/c/d)`,
+                    text: baseQuestionText + `⏱️ Waktu: ${timeLeft} detik`,
+                    footer: 'Cerdas Cermat - Pilih jawaban:',
+                    interactiveButtons: interactiveButtonsList,
                     edit: sentMsg.key
                 });
             } catch (error) {
