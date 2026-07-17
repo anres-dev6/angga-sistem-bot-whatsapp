@@ -224,8 +224,14 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
 
         // 3. Jika berupa slide gambar (misal TikTok foto, Instagram post, Facebook album)
         if (result.type === 'image-slide') {
-            const numImages = result.images.length;
-            console.log(`[Interactive AutoDL] Slide detected. Total images: ${numImages}, ShortID: ${shortId}`);
+            // Filter hanya URL valid (string atau Buffer), singkirkan undefined/null
+            const validImages = result.images.filter(img => img && (Buffer.isBuffer(img) || (typeof img === 'string' && img.startsWith('http'))));
+            const numImages = validImages.length;
+            console.log(`[Interactive AutoDL] Slide detected. Total valid images: ${numImages}, ShortID: ${shortId}`);
+
+            if (numImages === 0) {
+                throw new Error('Tidak ada gambar valid yang ditemukan dalam slideshow.');
+            }
 
             if (numImages === 1) {
                 // Proses fotonya saja tanpa lagu jika fotonya hanya 1
@@ -234,7 +240,7 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                     edit: progressMsg.key
                 });
 
-                const img = result.images[0];
+                const img = validImages[0];
                 let imageBuffer = null;
                 try {
                     if (Buffer.isBuffer(img)) {
@@ -261,7 +267,6 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                         caption: result.title || `Media dari ${platformName}`
                     });
                 } else {
-                    // Fallback to raw URL payload if buffer download failed
                     const imagePayload = Buffer.isBuffer(img) ? img : { url: img };
                     await sock.sendMessage(jid, {
                         image: imagePayload,
@@ -269,23 +274,19 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                     });
                 }
 
-                // Hapus pesan progress
-                try {
-                    await sock.sendMessage(jid, { delete: progressMsg.key });
-                } catch {}
+                try { await sock.sendMessage(jid, { delete: progressMsg.key }); } catch {}
                 return;
             } else {
-                // Slideshow mode - simpan ke cache
+                // Slideshow mode - simpan ke cache (hanya gambar valid)
                 console.log(`[Interactive AutoDL] Caching slideshow with ${numImages} slides under shortId: ${shortId}`);
                 global.interactiveDlCache.set(shortId, {
                     url: url,
                     type: 'image-slide',
-                    images: result.images,
+                    images: validImages,
                     platform: platform,
                     title: result.title || ''
                 });
 
-                // Kirim pesan dengan 2 tombol
                 const text = `📊 *AutoDL - Slideshow Terdeteksi*\n\n` +
                              `📱 Platform: *${platformName}*\n` +
                              `🖼️ Jumlah: *${numImages} slide*\n\n` +
@@ -321,11 +322,7 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                 }, {});
 
                 await sock.relayMessage(jid, buttonsMsg.message, { messageId: buttonsMsg.key.id });
-
-                // Hapus pesan progress
-                try {
-                    await sock.sendMessage(jid, { delete: progressMsg.key });
-                } catch {}
+                try { await sock.sendMessage(jid, { delete: progressMsg.key }); } catch {}
                 return;
             }
         }
@@ -599,16 +596,28 @@ export async function handleInteractiveResponse(sock, m, selectedIdArg = null) {
 
             const images = cachedEntry.images;
             const isGroup = from.endsWith('@g.us');
-            const sender = m.key.participant || m.participant || from;
-            const targetJid = action === 'private' ? sender : from;
 
-            console.log(`[Interactive AutoDL] Target JID for delivery: ${targetJid}`);
+            // Ambil JID pengirim dengan benar dari interactiveResponseMessage
+            const senderRaw =
+                m.message?.interactiveResponseMessage?.contextInfo?.participant ||
+                m.key?.participant ||
+                m.participant ||
+                (isGroup ? null : from);
+
+            // Bersihkan suffix device jika ada (misal :3@s.whatsapp.net → @s.whatsapp.net)
+            const senderJid = senderRaw
+                ? senderRaw.replace(/:\d+@/, '@')
+                : from;
+
+            const targetJid = action === 'private' ? senderJid : from;
+
+            console.log(`[Interactive AutoDL] Sender: ${senderJid}, Action: ${action}, Target: ${targetJid}`);
 
             // Beri feedback pesan loading terlebih dahulu
-            const infoText = action === 'private' 
+            const infoText = action === 'private'
                 ? `⏳ Mengirim *${images.length} slide* ke Private Chat Anda...`
                 : `⏳ Mengirim *${images.length} slide* ke chat ini...`;
-            
+
             await sock.sendMessage(from, { text: infoText }, { quoted: m });
 
             // Kirim semua slide secara berurutan dan persis jumlahnya
