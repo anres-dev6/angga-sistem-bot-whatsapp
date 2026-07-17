@@ -597,39 +597,50 @@ export async function handleInteractiveResponse(sock, m, selectedIdArg = null) {
             const images = cachedEntry.images;
             const isGroup = from.endsWith('@g.us');
 
-            // Ambil JID pengirim dengan benar dari interactiveResponseMessage
+            // Ambil JID pengirim dari semua kemungkinan sumber Baileys
             const senderRaw =
-                m.message?.interactiveResponseMessage?.contextInfo?.participant ||
-                m.key?.participant ||
-                m.participant ||
-                (isGroup ? null : from);
+                m.key?.participant ||                                                          // Paling umum untuk pesan grup
+                m.message?.interactiveResponseMessage?.contextInfo?.participant ||            // Kadang ada di sini
+                m.message?.extendedTextMessage?.contextInfo?.participant ||                   // Fallback
+                m.participant ||                                                               // Beberapa versi Baileys
+                (!isGroup ? from : null);                                                     // Hanya pakai from jika bukan grup
 
-            // Bersihkan suffix device jika ada (misal :3@s.whatsapp.net → @s.whatsapp.net)
+            // Bersihkan suffix device (misal :3@s.whatsapp.net → @s.whatsapp.net)
             const senderJid = senderRaw
                 ? senderRaw.replace(/:\d+@/, '@')
-                : from;
+                : null;
+
+            console.log(`[Interactive AutoDL] Sender resolved: ${senderJid}, isGroup: ${isGroup}, Action: ${action}`);
+
+            // Guard: jika private tapi sender tidak bisa ditentukan (atau sama dengan grup JID)
+            if (action === 'private') {
+                if (!senderJid || senderJid === from) {
+                    await sock.sendMessage(from, {
+                        text: `❌ *Gagal menentukan private chat Anda.*\n\n💡 Pastikan Anda sudah pernah chat dengan bot di private, lalu tekan tombol lagi.`
+                    }, { quoted: m });
+                    return true;
+                }
+            }
 
             const targetJid = action === 'private' ? senderJid : from;
 
-            console.log(`[Interactive AutoDL] Sender: ${senderJid}, Action: ${action}, Target: ${targetJid}`);
-
-            // Beri feedback pesan loading terlebih dahulu
+            // Beri feedback loading
             const infoText = action === 'private'
                 ? `⏳ Mengirim *${images.length} slide* ke Private Chat Anda...`
                 : `⏳ Mengirim *${images.length} slide* ke chat ini...`;
 
             await sock.sendMessage(from, { text: infoText }, { quoted: m });
 
-            // Untuk private chat: test dulu apakah bot bisa kirim ke JID tsb
-            if (action === 'private' && targetJid !== from) {
+            // Untuk private: test kirim dulu 1 notif, kalau gagal abort
+            if (action === 'private') {
                 try {
                     await sock.sendMessage(targetJid, {
-                        text: `📥 *${images.length} slide* sedang dikirim ke sini dari permintaan Anda di grup...`
+                        text: `📥 *${images.length} slide* akan dikirim ke sini dari permintaan Anda di grup...`
                     });
                 } catch (testErr) {
                     console.error('[Interactive AutoDL] Private chat pre-test failed:', testErr.message);
                     await sock.sendMessage(from, {
-                        text: `⚠️ *Gagal kirim ke Private Chat!*\n\nBot tidak bisa mengirim pesan ke private chat Anda.\n\n💡 Solusi: Mulai chat dulu dengan bot, lalu coba lagi.`
+                        text: `⚠️ *Gagal kirim ke Private Chat!*\n\nBot tidak bisa membuka private chat dengan Anda.\n\n💡 Solusi: Chat bot dulu di private, lalu coba lagi.`
                     }, { quoted: m });
                     return true;
                 }

@@ -54,7 +54,18 @@ export default async function instagram(url, ctx) {
         const btch = await import('btch-downloader');
         if (btch && typeof btch.igdl === 'function') {
             const res = await btch.igdl(url);
+
+            // DEBUG: print raw response structure to Railway logs
+            console.log('[AutoDL V3 - Instagram] btch raw response type:', typeof res, Array.isArray(res) ? `array[${res.length}]` : '');
+            if (Array.isArray(res) && res.length > 0) {
+                console.log('[AutoDL V3 - Instagram] btch raw item[0]:', JSON.stringify(res[0]).substring(0, 300));
+                if (res.length > 1) console.log('[AutoDL V3 - Instagram] btch raw item[1]:', JSON.stringify(res[1]).substring(0, 300));
+            } else {
+                console.log('[AutoDL V3 - Instagram] btch raw response:', JSON.stringify(res).substring(0, 500));
+            }
+
             let rawItems = [];
+
 
             if (Array.isArray(res)) {
                 rawItems = res;
