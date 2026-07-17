@@ -174,7 +174,7 @@ export default {
         const from = m.key.remoteJid;
         const game = global.cerdasGame[from];
 
-        if (!game) return false;
+        if (!game || game.isAnswered) return false;
 
         const sender = m.key.participant || m.key.remoteJid;
         const senderNumber = sender.split('@')[0];
@@ -186,6 +186,19 @@ export default {
         const validAnswers = ['a', 'b', 'c', 'd'];
         if (!validAnswers.includes(userAns)) {
             return false; // Ignore other messages
+        }
+
+        // Mark as answered to prevent double answers/questions
+        game.isAnswered = true;
+
+        // Clear timers immediately
+        if (game.timer) {
+            clearTimeout(game.timer);
+            game.timer = null;
+        }
+        if (game.countdownInterval) {
+            clearInterval(game.countdownInterval);
+            game.countdownInterval = null;
         }
 
         // Initialize participant if first time answering
@@ -203,16 +216,6 @@ export default {
 
         const participant = game.participants[sender];
 
-        // Check if already answered this question
-        const alreadyAnswered = participant.answers.some(a => a.questionNum === game.currentIndex + 1);
-        if (alreadyAnswered) {
-            // Send warning that they already answered
-            await sock.sendMessage(from, {
-                text: `⚠️ Kamu sudah jawab soal ini!\nTunggu soal berikutnya ya 😊`
-            }, { quoted: m });
-            return true; // Already answered, ignore
-        }
-
         // Check answer
         const isCorrect = (userAns === correctAnswerLetter);
 
@@ -229,6 +232,43 @@ export default {
         if (isCorrect) {
             participant.score++;
         }
+
+        // Send reaction to confirm receipt
+        try {
+            await sock.sendMessage(from, {
+                react: {
+                    text: isCorrect ? '✅' : '❌',
+                    key: m.key
+                }
+            });
+        } catch (e) {}
+
+        // Send result message and move to next question
+        let resultText = '';
+        if (isCorrect) {
+            resultText = `🎉 *Benar!* @${senderNumber} mendapatkan poin.\nJawabannya: *${correctAnswerLetter.toUpperCase()}. ${correctText}*`;
+        } else {
+            resultText = `❌ *Salah!* Jawabannya adalah: *${correctAnswerLetter.toUpperCase()}. ${correctText}*`;
+        }
+
+        try {
+            // Edit original question to show result (and remove buttons)
+            await sock.sendMessage(from, {
+                text: (game.questionText || '') + `\n⏱️ Soal Terjawab oleh @${senderNumber}!\n\n${resultText}`,
+                edit: game.questionMessageKey
+            });
+        } catch (e) {
+            // Fallback to sending new message if edit fails
+            await sock.sendMessage(from, {
+                text: resultText,
+                mentions: [sender]
+            });
+        }
+
+        // Move to next question after a short delay
+        setTimeout(async () => {
+            await nextQuestion(sock, from, m);
+        }, 2500);
 
         return true;
     }
@@ -273,6 +313,10 @@ async function sendQuestionWithTimer(sock, from, m) {
             buttonParamsJson: JSON.stringify({ display_text: 'D', id: 'cc_d' })
         }
     ];
+
+    // Reset answered status for new question
+    game.isAnswered = false;
+    game.questionText = baseQuestionText;
 
     // Send initial message
     const sentMsg = await sock.sendMessage(from, {
