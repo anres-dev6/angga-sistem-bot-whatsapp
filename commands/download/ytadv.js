@@ -71,9 +71,9 @@ export default {
                 0 // Start at page 0
             );
 
-            // Delete progress message
+            // React selesai pada pesan progress
             await sock.sendMessage(from, {
-                delete: progressMsg.key
+                react: { text: '😹', key: progressMsg.key }
             });
 
         } catch (err) {

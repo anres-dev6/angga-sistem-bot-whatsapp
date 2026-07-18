@@ -274,7 +274,7 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                     });
                 }
 
-                try { await sock.sendMessage(jid, { delete: progressMsg.key }); } catch {}
+                try { await sock.sendMessage(jid, { react: { text: '😹', key: progressMsg.key } }); } catch {}
                 return;
             } else {
                 // Slideshow mode - simpan ke cache (hanya gambar valid)
@@ -322,7 +322,7 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
                 }, {});
 
                 await sock.relayMessage(jid, buttonsMsg.message, { messageId: buttonsMsg.key.id });
-                try { await sock.sendMessage(jid, { delete: progressMsg.key }); } catch {}
+                try { await sock.sendMessage(jid, { react: { text: '😹', key: progressMsg.key } }); } catch {}
                 return;
             }
         }
@@ -398,10 +398,8 @@ export async function handleDirectDownloadAndButtons(sock, jid, url, platform, m
             // Kirim tombol MP3 di bawah video
             await sendMp3ButtonOnly(sock, jid, shortId, platform);
 
-            // Hapus pesan progress
-            try {
-                await sock.sendMessage(jid, { delete: progressMsg.key });
-            } catch {}
+            // React selesai pada pesan progress
+            try { await sock.sendMessage(jid, { react: { text: '😹', key: progressMsg.key } }); } catch {}
         }
     } catch (err) {
         console.error('[Interactive AutoDL] Direct Download Error:', err);
