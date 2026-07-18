@@ -597,7 +597,14 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
         auth: state,
         browser: ["Ubuntu", "Chrome", "20.0.04"],
         logger: P({ level: "silent" }),
-        version
+        version,
+        // Opsi optimal untuk menstabilkan sesi Userbot:
+        printQRInTerminal: false,
+        syncFullHistory: false,                 // Jangan download chat history lama secara penuh
+        shouldSyncHistoryDevices: () => false,  // Matikan sinkronisasi history dari perangkat lain
+        markOnlineOnConnect: false,             // Jangan paksa status online saat tersambung (mencegah conflict status)
+        defaultQueryTimeoutMs: 60000,           // Naikkan timeout request ke 60 detik (mencegah timeout drop)
+        keepAliveIntervalMs: 30000              // Ping keepalive berkala setiap 30 detik
     });
 
     sock.isUserbot = true;

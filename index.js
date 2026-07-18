@@ -84,7 +84,12 @@ async function startBot() {
         auth: state,
         browser: ["Ubuntu", "Chrome", "20.0.04"],
         logger: P({ level: "silent" }),
-        version
+        version,
+        // Opsi optimal untuk menstabilkan sesi Bot Utama:
+        syncFullHistory: false,
+        shouldSyncHistoryDevices: () => false,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000
     });
 
     global.waSock = sock; // Expose WhatsApp socket globally for bot integrations
