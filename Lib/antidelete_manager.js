@@ -51,23 +51,26 @@ export function isAntiDeleteEnabled(jid) {
 }
 
 // ============================================================
-//  IN-MEMORY MESSAGE CACHE
-//  Menyimpan pesan sebelum dihapus agar bisa di-forward
+//  IN-MEMORY MESSAGE CACHE (High Limit & Extended TTL)
+//  Menyimpan semua pesan yang lewat untuk dideteksi jika ditarik
 // ============================================================
 
 if (!global.adMsgCache) {
     global.adMsgCache = new Map();
 }
 
-const MAX_CACHE = 500;     // Maksimal pesan yang disimpan
-const TTL_MS    = 3600000; // Expire setelah 1 jam
+const MAX_CACHE = 2500;     // Kapasitas cache besar untuk chat yang sangat ramai
+const TTL_MS    = 86400000; // Pesan di-cache selama 24 jam (sehari penuh)
 
 /**
  * Simpan metadata pesan ke cache (dipanggil dari messages.upsert)
  */
 export function adCacheMessage(m) {
     try {
-        if (m.message?.protocolMessage) return; // Skip protocol messages
+        // Hanya skip jika ini adalah protocolMessage REVOKE (karena ini pesan penghapusan)
+        const protoType = m.message?.protocolMessage?.type;
+        if (protoType === 0 || protoType === 'REVOKE') return;
+        
         if (!m.key?.id || !m.key?.remoteJid) return;
 
         // Hanya cache kalau antidelete aktif di chat ini
@@ -78,26 +81,47 @@ export function adCacheMessage(m) {
             ? (m.key.participant || m.participant || m.key.remoteJid)
             : m.key.remoteJid;
 
-        // Unwrap viewOnce / ephemeral
+        // Unwrap wrappers (viewOnce, ephemeral, dll)
         let msgContent = m.message;
         if (msgContent?.viewOnceMessage?.message)            msgContent = msgContent.viewOnceMessage.message;
         if (msgContent?.viewOnceMessageV2?.message)          msgContent = msgContent.viewOnceMessageV2.message;
         if (msgContent?.ephemeralMessage?.message)           msgContent = msgContent.ephemeralMessage.message;
         if (msgContent?.documentWithCaptionMessage?.message) msgContent = msgContent.documentWithCaptionMessage.message;
 
-        const text = msgContent?.conversation
+        // Ekstrak text secara agresif dari tipe apa pun
+        let text = msgContent?.conversation
             || msgContent?.extendedTextMessage?.text
             || msgContent?.imageMessage?.caption
             || msgContent?.videoMessage?.caption
             || msgContent?.documentMessage?.caption
+            || msgContent?.interactiveMessage?.body?.text
+            || msgContent?.templateMessage?.hydratedTemplate?.hydratedContentText
+            || msgContent?.buttonsMessage?.contentText
             || '';
 
+        // Deteksi tipe media atau objek khusus
         let mediaType = 'text';
-        if (msgContent?.imageMessage)    mediaType = 'image';
+        if (msgContent?.imageMessage)         mediaType = 'image';
         else if (msgContent?.videoMessage)    mediaType = 'video';
         else if (msgContent?.audioMessage)    mediaType = 'audio';
         else if (msgContent?.stickerMessage)  mediaType = 'sticker';
         else if (msgContent?.documentMessage) mediaType = 'document';
+        else if (msgContent?.contactMessage)  {
+            mediaType = 'contact';
+            text = `Nama Kartu Nama: ${msgContent.contactMessage.displayName || '-'}`;
+        }
+        else if (msgContent?.contactsArrayMessage) {
+            mediaType = 'contacts';
+            text = `Daftar Kontak: ${(msgContent.contactsArrayMessage.contacts || []).map(c => c.displayName).join(', ')}`;
+        }
+        else if (msgContent?.locationMessage) {
+            mediaType = 'location';
+            text = `📍 Lokasi: Lat ${msgContent.locationMessage.degreesLatitude}, Long ${msgContent.locationMessage.degreesLongitude}`;
+        }
+        else if (msgContent?.pollCreationMessage) {
+            mediaType = 'poll';
+            text = `📊 Polling: "${msgContent.pollCreationMessage.name}"\nPilihan: ${(msgContent.pollCreationMessage.options || []).map(o => o.optionName).join(', ')}`;
+        }
 
         global.adMsgCache.set(m.key.id, {
             id:        m.key.id,
@@ -110,13 +134,13 @@ export function adCacheMessage(m) {
             cachedAt:  Date.now()
         });
 
-        // Jaga ukuran cache
+        // Hapus entri tertua jika melebihi kapasitas
         if (global.adMsgCache.size > MAX_CACHE) {
             const oldestKey = global.adMsgCache.keys().next().value;
             global.adMsgCache.delete(oldestKey);
         }
 
-        // Auto-expire setelah 1 jam
+        // Auto-expire setelah 24 jam
         setTimeout(() => global.adMsgCache.delete(m.key.id), TTL_MS);
 
     } catch (e) {
@@ -167,7 +191,6 @@ export async function adHandleRevoke(sock, m, target = 'self') {
         // Tentukan JID tujuan
         let targets = [];
         if (target === 'self') {
-            // Kirim ke nomor bot sendiri — hanya kamu yang bisa lihat
             const selfRaw = sock.user?.id;
             const selfNum = selfRaw?.includes(':')
                 ? selfRaw.split(':')[0]
