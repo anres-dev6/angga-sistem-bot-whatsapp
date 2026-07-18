@@ -17,6 +17,7 @@ import handleGroupParticipantsUpdate from "./handler/group.js";
 import { setupYtdlp } from "./utils/ytdlpSetup.js";
 import { startReminderScheduler } from "./Lib/reminder_manager.js";
 import "./Lib/autodl_manager.js"; // Initialize AutoDL state on startup
+import "./Lib/antidelete_manager.js"; // Initialize AntiDelete state on startup
 
 // Flag to prevent restart loop during pairing
 let isPairing = false;
@@ -255,6 +256,11 @@ async function startBot() {
                 const { cacheMessage, handleDelete } = await import('./Lib/userbot_manager.js');
                 await cacheMessage(sock, m);
                 await handleDelete(sock, m);
+
+                // Anti-Delete: cache pesan masuk & deteksi revoke (kirim ke nomor bot sendiri)
+                const { adCacheMessage, adHandleRevoke } = await import('./Lib/antidelete_manager.js');
+                adCacheMessage(m);
+                await adHandleRevoke(sock, m); // default target = 'self'
             }
             await handleMessage(sock, msg);
         } catch (err) {

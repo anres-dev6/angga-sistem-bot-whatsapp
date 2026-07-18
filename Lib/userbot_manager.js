@@ -623,13 +623,17 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
                 // Update pairing status in database
                 const db = loadUserbots();
                 const idx = db.findIndex(b => b.number === number);
+                let isNewConnection = false;
                 if (idx > -1) {
+                    if (!db[idx].paired) {
+                        isNewConnection = true;
+                    }
                     db[idx].paired = true;
                     saveUserbots(db);
                 }
 
-                // Notify main owner if mainSock is available
-                if (mainSock) {
+                // Notify main owner ONLY if this is a new connection/pairing (not a reconnect)
+                if (mainSock && isNewConnection) {
                     try {
                         const owners = db[idx]?.owner ? [db[idx].owner] : [];
                         const jid = owners[0] ? `${owners[0]}@s.whatsapp.net` : mainSock.user.id.split(':')[0] + '@s.whatsapp.net';
