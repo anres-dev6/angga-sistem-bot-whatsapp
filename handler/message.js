@@ -1922,40 +1922,43 @@ export default async function handleMessage(sock, msg) {
         //         AUTO AI RESPONSE
         // ============================================
         if (!body.startsWith(".") && body.trim().length > 0 && !m.key.fromMe) {
-            // Check if auto AI is enabled for this chat
-            if (global.aiAutoResponse && global.aiAutoResponse[from]) {
-                // Skip if there's an active game
-                const hasActiveGame = lastRiddle.has(from) ||
-                    (global.cakLontong && global.cakLontong[from]) ||
-                    (global.family100 && global.family100[from]) ||
-                    (global.cerdasGame && global.cerdasGame[from]) ||
-                    (global.tebakKata && global.tebakKata[from]) ||
-                    (global.tebakBenda && global.tebakBenda[from]) ||
-                    (global.tebakHewan && global.tebakHewan[from]) ||
-                    (global.tebakAdat && global.tebakAdat[from]) ||
-                    (global.tebakNegara && global.tebakNegara[from]) ||
-                    (global.tebakIbukota && global.tebakIbukota[from]);
+            // Jika userbot, pastikan memiliki izin fitur 'ai'
+            if (!sock.isUserbot || sock.userbotFeatures?.includes('ai')) {
+                // Check if auto AI is enabled for this chat
+                if (global.aiAutoResponse && global.aiAutoResponse[from]) {
+                    // Skip if there's an active game
+                    const hasActiveGame = lastRiddle.has(from) ||
+                        (global.cakLontong && global.cakLontong[from]) ||
+                        (global.family100 && global.family100[from]) ||
+                        (global.cerdasGame && global.cerdasGame[from]) ||
+                        (global.tebakKata && global.tebakKata[from]) ||
+                        (global.tebakBenda && global.tebakBenda[from]) ||
+                        (global.tebakHewan && global.tebakHewan[from]) ||
+                        (global.tebakAdat && global.tebakAdat[from]) ||
+                        (global.tebakNegara && global.tebakNegara[from]) ||
+                        (global.tebakIbukota && global.tebakIbukota[from]);
 
-                if (!hasActiveGame) {
-                    try {
-                        // Call GPT-3 API with Gen Z style
-                        const prompt = "Jawab dengan singkat, santai, pake bahasa Gen Z, pake 'lu' dan 'gw'. Jangan formal, jangan panjang-panjang.";
-                        const apiUrl = `https://api.siputzx.my.id/api/ai/gpt3?prompt=${encodeURIComponent(prompt)}&content=${encodeURIComponent(body)}`;
+                    if (!hasActiveGame) {
+                        try {
+                            // Call GPT-3 API with Gen Z style
+                            const prompt = "Jawab dengan singkat, santai, pake bahasa Gen Z, pake 'lu' dan 'gw'. Jangan formal, jangan panjang-panjang.";
+                            const apiUrl = `https://api.siputzx.my.id/api/ai/gpt3?prompt=${encodeURIComponent(prompt)}&content=${encodeURIComponent(body)}`;
 
-                        const response = await fetch(apiUrl, {
-                            signal: AbortSignal.timeout(30000)
-                        });
+                            const response = await fetch(apiUrl, {
+                                signal: AbortSignal.timeout(30000)
+                            });
 
-                        if (response.ok) {
-                            const data = await response.json();
-                            const aiResponse = data.data || data.result || data.response || "Maaf, AI tidak bisa menjawab saat ini.";
+                            if (response.ok) {
+                                const data = await response.json();
+                                const aiResponse = data.data || data.result || data.response || "Maaf, AI tidak bisa menjawab saat ini.";
 
-                            await sock.sendMessage(from, { text: aiResponse }, { quoted: m });
+                                await sock.sendMessage(from, { text: aiResponse }, { quoted: m });
+                            }
+                        } catch (error) {
+                            console.error('Auto AI Error:', error);
                         }
-                    } catch (error) {
-                        console.error('Auto AI Error:', error);
+                        // Don't return here - let AutoDL run too if enabled
                     }
-                    // Don't return here - let AutoDL run too if enabled
                 }
             }
         }
@@ -1966,8 +1969,10 @@ export default async function handleMessage(sock, msg) {
         try {
             const { isAutoStickerEnabled } = await import('../Lib/autosticker_manager.js');
             if (!body.startsWith(".") && isAutoStickerEnabled(from) && m.message?.imageMessage && !m.key.fromMe) {
-                console.log('[AutoSticker] Auto sticker triggered for chat:', from);
-                const content = m.message.imageMessage;
+                // Jika userbot, pastikan memiliki izin fitur 'sticker'
+                if (!sock.isUserbot || sock.userbotFeatures?.includes('sticker')) {
+                    console.log('[AutoSticker] Auto sticker triggered for chat:', from);
+                    const content = m.message.imageMessage;
 
                 // Send processing reaction
                 await sock.sendMessage(from, { react: { text: '⏳', key: m.key } });
@@ -1993,6 +1998,7 @@ export default async function handleMessage(sock, msg) {
                 await sock.sendMessage(from, { sticker: finalSticker }, { quoted: m });
                 await sock.sendMessage(from, { react: { text: '✅', key: m.key } });
                 return; // Stop further processing
+                }
             }
         } catch (err) {
             console.error('[AutoSticker] Hook Error:', err);
@@ -2004,6 +2010,7 @@ export default async function handleMessage(sock, msg) {
         //  INTERACTIVE AUTO DOWNLOAD (TikTok, IG, FB, YT)
         // ============================================
         if (!body.startsWith(".") && body.trim().length > 0) {
+            if (sock.isUserbot && !sock.userbotFeatures?.includes('autodl')) return;
             const { isAutoDLEnabled } = await import('../Lib/autodl_manager.js');
             const { isAutoDLV2Enabled } = await import('../Lib/autodlv2_manager.js');
             const { isAutoDLV3Enabled } = await import('../Lib/autodlv3_manager.js');
@@ -2039,6 +2046,7 @@ export default async function handleMessage(sock, msg) {
         //         AUTO DOWNLOAD V3 (Universal Engine)
         // ============================================
         if (!body.startsWith(".") && body.trim().length > 0) {
+            if (sock.isUserbot && !sock.userbotFeatures?.includes('autodl')) return;
             const { isAutoDLV3Enabled } = await import('../Lib/autodlv3_manager.js');
             const isV3 = isAutoDLV3Enabled(from);
             console.log(`[AutoDL V3] Checking status for ${from}: ${isV3}`);
@@ -2061,6 +2069,7 @@ export default async function handleMessage(sock, msg) {
         //         AUTO DOWNLOAD V2 (ab-downloader)
         // ============================================
         if (!body.startsWith(".") && body.trim().length > 0) {
+            if (sock.isUserbot && !sock.userbotFeatures?.includes('autodl')) return;
             const { isAutoDLV2Enabled } = await import('../Lib/autodlv2_manager.js');
 
             if (isAutoDLV2Enabled(from)) {
@@ -2251,6 +2260,7 @@ export default async function handleMessage(sock, msg) {
         //         AUTO DOWNLOAD (AutoDL - yt-dlp)
         // ============================================
         if (!body.startsWith(".") && body.trim().length > 0) {
+            if (sock.isUserbot && !sock.userbotFeatures?.includes('autodl')) return;
             const { isAutoDLEnabled } = await import('../Lib/autodl_manager.js');
 
             if (isAutoDLEnabled(from)) {
