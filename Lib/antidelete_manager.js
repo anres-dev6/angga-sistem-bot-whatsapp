@@ -31,23 +31,23 @@ function saveState(state) {
     }
 }
 
-export function enableAntiDelete(jid) {
+export function enableAntiDelete() {
     const state = loadState();
-    state[jid] = true;
+    state.global = true;
     saveState(state);
-    console.log(`[AntiDelete] Enabled for ${jid}`);
+    console.log(`[AntiDelete] Enabled globally`);
 }
 
-export function disableAntiDelete(jid) {
+export function disableAntiDelete() {
     const state = loadState();
-    state[jid] = false;
+    state.global = false;
     saveState(state);
-    console.log(`[AntiDelete] Disabled for ${jid}`);
+    console.log(`[AntiDelete] Disabled globally`);
 }
 
-export function isAntiDeleteEnabled(jid) {
+export function isAntiDeleteEnabled() {
     const state = loadState();
-    return state[jid] === true;
+    return state.global === true;
 }
 
 // ============================================================
@@ -73,8 +73,8 @@ export function adCacheMessage(m) {
         
         if (!m.key?.id || !m.key?.remoteJid) return;
 
-        // Hanya cache kalau antidelete aktif di chat ini
-        if (!isAntiDeleteEnabled(m.key.remoteJid)) return;
+        // Hanya cache kalau antidelete aktif secara global
+        if (!isAntiDeleteEnabled()) return;
 
         const isGroup = m.key.remoteJid.endsWith('@g.us');
         const sender  = isGroup
@@ -173,7 +173,7 @@ export async function adHandleRevoke(sock, m, target = 'self') {
         const targetMsgId = proto.key?.id;
         const from        = m.key.remoteJid;
 
-        if (!isAntiDeleteEnabled(from)) return;
+        if (!isAntiDeleteEnabled()) return;
 
         console.log(`[AntiDelete] Revoke detected in ${from}, msgId: ${targetMsgId}`);
 

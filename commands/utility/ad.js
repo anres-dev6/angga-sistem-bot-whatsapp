@@ -4,22 +4,15 @@ export default {
     name: 'ad',
     aliases: ['antidelete', 'antitarik'],
     tags: ['utility'],
-    description: 'Aktifkan atau matikan Anti-Delete (Anti-Tarik Pesan) di chat ini',
+    description: 'Aktifkan atau matikan Anti-Delete (Anti-Tarik Pesan) secara global',
     access: {
-        owner: false,
+        owner: true,
         group: false,
         private: false
     },
 
-    run: async (sock, msg, args, { isAdmin, isOwner, isGroup }) => {
+    run: async (sock, msg, args, { isOwner }) => {
         const from = msg.key.remoteJid;
-
-        // Di grup hanya admin/owner yang bisa toggle
-        if (isGroup && !isAdmin && !isOwner) {
-            return sock.sendMessage(from, {
-                text: '❌ Hanya *Admin* atau *Owner* yang bisa menggunakan perintah ini.'
-            }, { quoted: msg });
-        }
 
         // Jika dijalankan oleh userbot, cek apakah fitur 'ad' diaktifkan
         if (sock.isUserbot && !isOwner) {
@@ -32,40 +25,40 @@ export default {
         }
 
         const action = args[0]?.toLowerCase();
-        const currentStatus = isAntiDeleteEnabled(from);
+        const currentStatus = isAntiDeleteEnabled();
 
         if (!action || action === 'status') {
             return sock.sendMessage(from, {
-                text: `🛡️ *Anti-Delete Status*\n\n` +
+                text: `🛡️ *Anti-Delete Status (Global)*\n\n` +
                       `Status: ${currentStatus ? '✅ *ON*' : '❌ *OFF*'}\n\n` +
                       `📌 *Cara pakai:*\n` +
-                      `• \`.ad on\`  → Aktifkan\n` +
-                      `• \`.ad off\` → Matikan`
+                      `• \`.ad on\`  → Aktifkan secara Global\n` +
+                      `• \`.ad off\` → Matikan secara Global`
             }, { quoted: msg });
         }
 
         if (action === 'on') {
             if (currentStatus) {
                 return sock.sendMessage(from, {
-                    text: '⚠️ Anti-Delete sudah *ON* di chat ini.'
+                    text: '⚠️ Anti-Delete sudah *ON* secara Global.'
                 }, { quoted: msg });
             }
-            enableAntiDelete(from);
+            enableAntiDelete();
             return sock.sendMessage(from, {
-                text: `✅ *Anti-Delete AKTIF!*\n\n` +
-                      `🛡️ Setiap pesan yang ditarik di chat ini akan diteruskan ke Owner.`
+                text: `✅ *Anti-Delete AKTIF (Global)!*\n\n` +
+                      `🛡️ Setiap pesan yang ditarik di chat mana pun akan diteruskan ke Owner.`
             }, { quoted: msg });
         }
 
         if (action === 'off') {
             if (!currentStatus) {
                 return sock.sendMessage(from, {
-                    text: '⚠️ Anti-Delete sudah *OFF* di chat ini.'
+                    text: '⚠️ Anti-Delete sudah *OFF* secara Global.'
                 }, { quoted: msg });
             }
-            disableAntiDelete(from);
+            disableAntiDelete();
             return sock.sendMessage(from, {
-                text: `❌ *Anti-Delete DIMATIKAN.*\n\n` +
+                text: `❌ *Anti-Delete DIMATIKAN (Global).*\n\n` +
                       `Pesan yang ditarik tidak akan lagi dilaporkan.`
             }, { quoted: msg });
         }
