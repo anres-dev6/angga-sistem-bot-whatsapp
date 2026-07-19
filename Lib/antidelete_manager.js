@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { downloadMediaMessage } from 'baileys';
+import P from 'pino';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,6 +83,7 @@ if (!global.adMsgCache) {
 const MAX_CACHE = 2500;     // Kapasitas cache besar untuk chat yang sangat ramai
 const TTL_MS    = 86400000; // Pesan di-cache selama 24 jam (sehari penuh)
 
+// Unwraps the media message from any wrappers and gets the official Baileys type key
 function getMediaMessage(message) {
     if (!message) return null;
     let msgContent = message;
@@ -90,12 +92,65 @@ function getMediaMessage(message) {
     if (msgContent.ephemeralMessage?.message)           msgContent = msgContent.ephemeralMessage.message;
     if (msgContent.documentWithCaptionMessage?.message) msgContent = msgContent.documentWithCaptionMessage.message;
 
-    if (msgContent.imageMessage) return { message: msgContent.imageMessage, type: 'image' };
-    if (msgContent.videoMessage) return { message: msgContent.videoMessage, type: 'video' };
-    if (msgContent.audioMessage) return { message: msgContent.audioMessage, type: 'audio' };
-    if (msgContent.stickerMessage) return { message: msgContent.stickerMessage, type: 'sticker' };
-    if (msgContent.documentMessage) return { message: msgContent.documentMessage, type: 'document' };
+    if (msgContent.imageMessage) return { message: msgContent.imageMessage, type: 'imageMessage' };
+    if (msgContent.videoMessage) return { message: msgContent.videoMessage, type: 'videoMessage' };
+    if (msgContent.audioMessage) return { message: msgContent.audioMessage, type: 'audioMessage' };
+    if (msgContent.stickerMessage) return { message: msgContent.stickerMessage, type: 'stickerMessage' };
+    if (msgContent.documentMessage) return { message: msgContent.documentMessage, type: 'documentMessage' };
     return null;
+}
+
+// Robust fallback decrypt/downloader for Baileys media messages
+async function downloadMediaHelper(sock, m, mediaMsg, mediaType) {
+    let buffer;
+    
+    // Cara 1: Parent message (original raw structure)
+    try {
+        buffer = await downloadMediaMessage(
+            m,
+            'buffer',
+            {},
+            {
+                logger: P({ level: "silent" }),
+                reuploadRequest: sock.updateMediaMessage
+            }
+        );
+    } catch (e1) {
+        // Cara 2: Wrapped in dynamic key object { [mediaType]: mediaMsg }
+        try {
+            buffer = await downloadMediaMessage(
+                {
+                    key: m.key,
+                    message: { [mediaType]: mediaMsg }
+                },
+                'buffer',
+                {},
+                {
+                    logger: P({ level: "silent" }),
+                    reuploadRequest: sock.updateMediaMessage
+                }
+            );
+        } catch (e2) {
+            // Cara 3: Direct media message object as value
+            try {
+                buffer = await downloadMediaMessage(
+                    {
+                        key: m.key,
+                        message: mediaMsg
+                    },
+                    'buffer',
+                    {},
+                    {
+                        logger: P({ level: "silent" }),
+                        reuploadRequest: sock.updateMediaMessage
+                    }
+                );
+            } catch (e3) {
+                console.error('[AntiDelete] Decryption failed on all 3 methods:', e3.message);
+            }
+        }
+    }
+    return buffer;
 }
 
 /**
@@ -173,24 +228,18 @@ export async function adCacheMessage(sock, m) {
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
                 const extMap = {
-                    image: 'jpg',
-                    video: 'mp4',
-                    audio: 'ogg',
-                    sticker: 'webp',
-                    document: mediaInfo.message.mimetype?.split('/')[1] || 'bin'
+                    imageMessage: 'jpg',
+                    videoMessage: 'mp4',
+                    audioMessage: 'ogg',
+                    stickerMessage: 'webp',
+                    documentMessage: mediaInfo.message.mimetype?.split('/')[1]?.split(';')[0] || 'bin'
                 };
                 const fileExt = extMap[mediaInfo.type] || 'bin';
                 const outputFileName = `ad_${m.key.id}_${Date.now()}.${fileExt}`;
                 const outputFilePath = path.join(tempDir, outputFileName);
 
-                const buffer = await downloadMediaMessage(
-                    m,
-                    'buffer',
-                    {},
-                    {
-                        reuploadRequest: sock.updateMediaMessage
-                    }
-                );
+                // Call the robust 3-method decrypt downloader
+                const buffer = await downloadMediaHelper(sock, m, mediaInfo.message, mediaInfo.type);
 
                 if (buffer) {
                     fs.writeFileSync(outputFilePath, buffer);
