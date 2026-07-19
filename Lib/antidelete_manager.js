@@ -1,10 +1,27 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { downloadMediaMessage } from 'baileys';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const STORE_PATH = path.join(__dirname, '../data/antidelete.json');
+
+// Clean up old temp media files on startup
+try {
+    const tempDir = path.join(process.cwd(), 'temp/antidelete');
+    if (fs.existsSync(tempDir)) {
+        const files = fs.readdirSync(tempDir);
+        for (const file of files) {
+            try {
+                fs.unlinkSync(path.join(tempDir, file));
+            } catch (err) {}
+        }
+        console.log('[AntiDelete] Cleaned startup temp media files.');
+    }
+} catch (e) {
+    console.error('[AntiDelete] Failed to clear temp folder on startup:', e.message);
+}
 
 // ============================================================
 //  PERSISTENT STATE MANAGER
@@ -65,10 +82,26 @@ if (!global.adMsgCache) {
 const MAX_CACHE = 2500;     // Kapasitas cache besar untuk chat yang sangat ramai
 const TTL_MS    = 86400000; // Pesan di-cache selama 24 jam (sehari penuh)
 
+function getMediaMessage(message) {
+    if (!message) return null;
+    let msgContent = message;
+    if (msgContent.viewOnceMessage?.message)            msgContent = msgContent.viewOnceMessage.message;
+    if (msgContent.viewOnceMessageV2?.message)          msgContent = msgContent.viewOnceMessageV2.message;
+    if (msgContent.ephemeralMessage?.message)           msgContent = msgContent.ephemeralMessage.message;
+    if (msgContent.documentWithCaptionMessage?.message) msgContent = msgContent.documentWithCaptionMessage.message;
+
+    if (msgContent.imageMessage) return { message: msgContent.imageMessage, type: 'image' };
+    if (msgContent.videoMessage) return { message: msgContent.videoMessage, type: 'video' };
+    if (msgContent.audioMessage) return { message: msgContent.audioMessage, type: 'audio' };
+    if (msgContent.stickerMessage) return { message: msgContent.stickerMessage, type: 'sticker' };
+    if (msgContent.documentMessage) return { message: msgContent.documentMessage, type: 'document' };
+    return null;
+}
+
 /**
  * Simpan metadata pesan ke cache (dipanggil dari messages.upsert)
  */
-export function adCacheMessage(sock, m) {
+export async function adCacheMessage(sock, m) {
     try {
         // Hanya skip jika ini adalah protocolMessage REVOKE (karena ini pesan penghapusan)
         const protoType = m.message?.protocolMessage?.type;
@@ -130,12 +163,51 @@ export function adCacheMessage(sock, m) {
             text = `📊 Polling: "${msgContent.pollCreationMessage.name}"\nPilihan: ${(msgContent.pollCreationMessage.options || []).map(o => o.optionName).join(', ')}`;
         }
 
+        // Caching media secara offline/lokal jika ada
+        const mediaInfo = getMediaMessage(m.message);
+        let mediaPath = null;
+
+        if (mediaInfo) {
+            try {
+                const tempDir = path.join(process.cwd(), 'temp/antidelete');
+                if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+                const extMap = {
+                    image: 'jpg',
+                    video: 'mp4',
+                    audio: 'ogg',
+                    sticker: 'webp',
+                    document: mediaInfo.message.mimetype?.split('/')[1] || 'bin'
+                };
+                const fileExt = extMap[mediaInfo.type] || 'bin';
+                const outputFileName = `ad_${m.key.id}_${Date.now()}.${fileExt}`;
+                const outputFilePath = path.join(tempDir, outputFileName);
+
+                const buffer = await downloadMediaMessage(
+                    m,
+                    'buffer',
+                    {},
+                    {
+                        reuploadRequest: sock.updateMediaMessage
+                    }
+                );
+
+                if (buffer) {
+                    fs.writeFileSync(outputFilePath, buffer);
+                    mediaPath = outputFilePath;
+                }
+            } catch (dlErr) {
+                console.error('[AntiDelete] Failed to cache media message:', dlErr.message);
+            }
+        }
+
         global.adMsgCache.set(m.key.id, {
             id:        m.key.id,
             from:      m.key.remoteJid,
             sender,
             text,
             mediaType,
+            mediaPath,
             msgContent,
             rawMsg:    m,
             cachedAt:  Date.now()
@@ -144,11 +216,21 @@ export function adCacheMessage(sock, m) {
         // Hapus entri tertua jika melebihi kapasitas
         if (global.adMsgCache.size > MAX_CACHE) {
             const oldestKey = global.adMsgCache.keys().next().value;
+            const oldest = global.adMsgCache.get(oldestKey);
+            if (oldest?.mediaPath && fs.existsSync(oldest.mediaPath)) {
+                try { fs.unlinkSync(oldest.mediaPath); } catch {}
+            }
             global.adMsgCache.delete(oldestKey);
         }
 
         // Auto-expire setelah 24 jam
-        setTimeout(() => global.adMsgCache.delete(m.key.id), TTL_MS);
+        setTimeout(() => {
+            const oldest = global.adMsgCache.get(m.key.id);
+            if (oldest?.mediaPath && fs.existsSync(oldest.mediaPath)) {
+                try { fs.unlinkSync(oldest.mediaPath); } catch {}
+            }
+            global.adMsgCache.delete(m.key.id);
+        }, TTL_MS);
 
     } catch (e) {
         console.error('[AntiDelete] adCacheMessage error:', e.message);
@@ -241,41 +323,43 @@ export async function adHandleRevoke(sock, m, target = 'self') {
             try {
                 await sock.sendMessage(targetJid, { text: notifText, mentions });
 
-                // Forward media jika ada
-                const mc = cached.msgContent;
-                if (mc?.imageMessage) {
-                    await sock.sendMessage(targetJid, {
-                        image: { url: mc.imageMessage.url },
-                        caption: mc.imageMessage.caption || ''
-                    });
-                } else if (mc?.videoMessage) {
-                    await sock.sendMessage(targetJid, {
-                        video: { url: mc.videoMessage.url },
-                        caption: mc.videoMessage.caption || ''
-                    });
-                } else if (mc?.audioMessage) {
-                    await sock.sendMessage(targetJid, {
-                        audio: { url: mc.audioMessage.url },
-                        ptt: mc.audioMessage.ptt || false
-                    }).catch(() => {});
-                } else if (mc?.stickerMessage) {
-                    await sock.sendMessage(targetJid, {
-                        sticker: { url: mc.stickerMessage.url }
-                    }).catch(() => {});
-                } else if (mc?.documentMessage) {
-                    await sock.sendMessage(targetJid, {
-                        document: { url: mc.documentMessage.url },
-                        mimetype: mc.documentMessage.mimetype,
-                        fileName: mc.documentMessage.fileName || 'file'
-                    }).catch(() => {});
+                // Forward media jika ada file path yang valid
+                if (cached.mediaPath && fs.existsSync(cached.mediaPath)) {
+                    const mediaBuffer = fs.readFileSync(cached.mediaPath);
+                    const mc = cached.msgContent;
+
+                    if (cached.mediaType === 'image') {
+                        await sock.sendMessage(targetJid, {
+                            image: mediaBuffer,
+                            caption: mc?.imageMessage?.caption || ''
+                        });
+                    } else if (cached.mediaType === 'video') {
+                        await sock.sendMessage(targetJid, {
+                            video: mediaBuffer,
+                            caption: mc?.videoMessage?.caption || ''
+                        });
+                    } else if (cached.mediaType === 'audio') {
+                        await sock.sendMessage(targetJid, {
+                            audio: mediaBuffer,
+                            ptt: mc?.audioMessage?.ptt || false,
+                            mimetype: mc?.audioMessage?.mimetype || 'audio/ogg; codecs=opus'
+                        });
+                    } else if (cached.mediaType === 'sticker') {
+                        await sock.sendMessage(targetJid, {
+                            sticker: mediaBuffer
+                        });
+                    } else if (cached.mediaType === 'document') {
+                        await sock.sendMessage(targetJid, {
+                            document: mediaBuffer,
+                            mimetype: mc?.documentMessage?.mimetype || 'application/octet-stream',
+                            fileName: mc?.documentMessage?.fileName || 'document'
+                        });
+                    }
                 }
             } catch (sendErr) {
                 console.error('[AntiDelete] Failed to send to', targetJid, ':', sendErr.message);
             }
         }
-
-        // Jangan delete dari Map agar bot lain (jika ada) bisa tetap memproses pesan revoked yang sama
-        // global.adMsgCache.delete(targetMsgId);
 
     } catch (e) {
         console.error('[AntiDelete] adHandleRevoke error:', e.message);
