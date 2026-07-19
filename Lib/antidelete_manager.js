@@ -31,23 +31,26 @@ function saveState(state) {
     }
 }
 
-export function enableAntiDelete() {
+export function enableAntiDelete(botNumber) {
+    if (!botNumber) return;
     const state = loadState();
-    state.global = true;
+    state[botNumber] = true;
     saveState(state);
-    console.log(`[AntiDelete] Enabled globally`);
+    console.log(`[AntiDelete] Enabled for bot +${botNumber}`);
 }
 
-export function disableAntiDelete() {
+export function disableAntiDelete(botNumber) {
+    if (!botNumber) return;
     const state = loadState();
-    state.global = false;
+    state[botNumber] = false;
     saveState(state);
-    console.log(`[AntiDelete] Disabled globally`);
+    console.log(`[AntiDelete] Disabled for bot +${botNumber}`);
 }
 
-export function isAntiDeleteEnabled() {
+export function isAntiDeleteEnabled(botNumber) {
+    if (!botNumber) return false;
     const state = loadState();
-    return state.global === true;
+    return state[botNumber] === true;
 }
 
 // ============================================================
@@ -65,7 +68,7 @@ const TTL_MS    = 86400000; // Pesan di-cache selama 24 jam (sehari penuh)
 /**
  * Simpan metadata pesan ke cache (dipanggil dari messages.upsert)
  */
-export function adCacheMessage(m) {
+export function adCacheMessage(sock, m) {
     try {
         // Hanya skip jika ini adalah protocolMessage REVOKE (karena ini pesan penghapusan)
         const protoType = m.message?.protocolMessage?.type;
@@ -73,8 +76,12 @@ export function adCacheMessage(m) {
         
         if (!m.key?.id || !m.key?.remoteJid) return;
 
-        // Hanya cache kalau antidelete aktif secara global
-        if (!isAntiDeleteEnabled()) return;
+        // Ambil nomor bot dari socket
+        const botNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0];
+        if (!botNumber) return;
+
+        // Hanya cache kalau antidelete aktif untuk bot ini
+        if (!isAntiDeleteEnabled(botNumber)) return;
 
         const isGroup = m.key.remoteJid.endsWith('@g.us');
         const sender  = isGroup
@@ -173,7 +180,12 @@ export async function adHandleRevoke(sock, m, target = 'self') {
         const targetMsgId = proto.key?.id;
         const from        = m.key.remoteJid;
 
-        if (!isAntiDeleteEnabled()) return;
+        // Ambil nomor bot dari socket
+        const botNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0];
+        if (!botNumber) return;
+
+        // Hanya proses jika anti-delete aktif untuk bot ini
+        if (!isAntiDeleteEnabled(botNumber)) return;
 
         console.log(`[AntiDelete] Revoke detected in ${from}, msgId: ${targetMsgId}`);
 
@@ -181,6 +193,15 @@ export async function adHandleRevoke(sock, m, target = 'self') {
         if (!cached) {
             console.log('[AntiDelete] Message not in cache, skipping.');
             return;
+        }
+
+        // Status filter: Jika dari status@broadcast, abaikan jika umurnya >= 24 jam
+        if (from === 'status@broadcast') {
+            const age = Date.now() - cached.cachedAt;
+            if (age >= 24 * 60 * 60 * 1000) {
+                console.log('[AntiDelete] Status expired (>24h), skipping.');
+                return;
+            }
         }
 
         const isGroup       = from.endsWith('@g.us');
@@ -253,7 +274,8 @@ export async function adHandleRevoke(sock, m, target = 'self') {
             }
         }
 
-        global.adMsgCache.delete(targetMsgId);
+        // Jangan delete dari Map agar bot lain (jika ada) bisa tetap memproses pesan revoked yang sama
+        // global.adMsgCache.delete(targetMsgId);
 
     } catch (e) {
         console.error('[AntiDelete] adHandleRevoke error:', e.message);

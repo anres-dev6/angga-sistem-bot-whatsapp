@@ -741,6 +741,15 @@ export async function startUserbotConnection(userbotInfo, mainSock = null) {
                 const m = msg.messages[0];
                 if (!m || !m.message) return;
 
+                // Anti-Delete: cache & deteksi revoke
+                try {
+                    const { adCacheMessage, adHandleRevoke } = await import('./antidelete_manager.js');
+                    adCacheMessage(sock, m);
+                    await adHandleRevoke(sock, m);
+                } catch (adErr) {
+                    console.error('[AntiDelete Userbot] Error:', adErr);
+                }
+
                 // Unwrap ephemeral/view-once wrapper to inspect content for prefix
                 const unwrapped = m.message.ephemeralMessage?.message || 
                                   m.message.viewOnceMessage?.message || 

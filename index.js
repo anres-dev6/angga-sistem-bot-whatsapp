@@ -264,7 +264,7 @@ async function startBot() {
 
                 // Anti-Delete: cache pesan masuk & deteksi revoke (kirim ke nomor bot sendiri)
                 const { adCacheMessage, adHandleRevoke } = await import('./Lib/antidelete_manager.js');
-                adCacheMessage(m);
+                adCacheMessage(sock, m);
                 await adHandleRevoke(sock, m); // default target = 'self'
             }
             await handleMessage(sock, msg);

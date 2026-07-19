@@ -24,41 +24,44 @@ export default {
             }
         }
 
+        const botNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0];
+        if (!botNumber) return;
+
         const action = args[0]?.toLowerCase();
-        const currentStatus = isAntiDeleteEnabled();
+        const currentStatus = isAntiDeleteEnabled(botNumber);
 
         if (!action || action === 'status') {
             return sock.sendMessage(from, {
-                text: `🛡️ *Anti-Delete Status (Global)*\n\n` +
+                text: `🛡️ *Anti-Delete Status*\n\n` +
                       `Status: ${currentStatus ? '✅ *ON*' : '❌ *OFF*'}\n\n` +
                       `📌 *Cara pakai:*\n` +
-                      `• \`.ad on\`  → Aktifkan secara Global\n` +
-                      `• \`.ad off\` → Matikan secara Global`
+                      `• \`.ad on\`  → Aktifkan\n` +
+                      `• \`.ad off\` → Matikan`
             }, { quoted: msg });
         }
 
         if (action === 'on') {
             if (currentStatus) {
                 return sock.sendMessage(from, {
-                    text: '⚠️ Anti-Delete sudah *ON* secara Global.'
+                    text: '⚠️ Anti-Delete sudah *ON*.'
                 }, { quoted: msg });
             }
-            enableAntiDelete();
+            enableAntiDelete(botNumber);
             return sock.sendMessage(from, {
-                text: `✅ *Anti-Delete AKTIF (Global)!*\n\n` +
-                      `🛡️ Setiap pesan yang ditarik di chat mana pun akan diteruskan ke Owner.`
+                text: `✅ *Anti-Delete AKTIF!*\n\n` +
+                      `🛡️ Setiap pesan atau status yang ditarik/dihapus akan diteruskan ke nomor ini.`
             }, { quoted: msg });
         }
 
         if (action === 'off') {
             if (!currentStatus) {
                 return sock.sendMessage(from, {
-                    text: '⚠️ Anti-Delete sudah *OFF* secara Global.'
+                    text: '⚠️ Anti-Delete sudah *OFF*.'
                 }, { quoted: msg });
             }
-            disableAntiDelete();
+            disableAntiDelete(botNumber);
             return sock.sendMessage(from, {
-                text: `❌ *Anti-Delete DIMATIKAN (Global).*\n\n` +
+                text: `❌ *Anti-Delete DIMATIKAN.*\n\n` +
                       `Pesan yang ditarik tidak akan lagi dilaporkan.`
             }, { quoted: msg });
         }
