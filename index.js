@@ -283,7 +283,10 @@ async function startBot() {
     });
 }
 
+import { startApiServer } from "./apiServer.js";
+
 startBot();
+startApiServer();
 
 // Start Telegram Bot in parallel inside the same process
 import("./telegram.js").catch(err => {
