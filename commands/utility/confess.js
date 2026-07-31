@@ -38,13 +38,16 @@ export default {
         }
 
         try {
+            // Determine real sender JID
+            const isGroup = from.endsWith('@g.us');
+            const senderJid = isGroup ? (msg.key.participant || msg.participant || from) : from;
+
             // Initiate the session
-            const senderJid = msg.key.participant || msg.participant || from;
             await createConfessSession(sock, senderJid, senderName, receiverNum, firstMsg);
 
             // Confirm successful session startup to the sender
             await sock.sendMessage(from, {
-                text: `🔒 *Sesi Confess berhasil dibuat!*\n\n💌 Pesan rahasia Anda telah terkirim secara anonim ke nomor tujuan. Seluruh balasan dari dia akan langsung diteruskan ke obrolan ini.\n\n💡 *Tips:* Ketik *.confessstop* kapan saja untuk mengakhiri sesi obrolan secara manual.`
+                text: `🔒 *Sesi Confess berhasil dibuat!*\n\n💌 Pesan rahasia Anda telah terkirim secara anonim ke nomor tujuan.\n\n📱 *Lanjutkan Percakapan:* Silakan gunakan *Private Chat (Chat Pribadi dengan Bot)* untuk saling berkirim pesan/balasan secara anonim.\n\n💡 *Tips:* Ketik *.confessstop* kapan saja untuk mengakhiri sesi obrolan secara manual.`
             }, { quoted: msg });
 
         } catch (error) {

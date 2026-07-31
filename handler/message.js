@@ -390,24 +390,78 @@ export default async function handleMessage(sock, msg) {
             const { findSessionByUser, updateSessionActivity, cleanJid, sendConfessMessage } = await import('../Lib/confess_manager.js');
             const activeSession = findSessionByUser(sender);
 
-            if (activeSession && body.trim()) {
-                // Bypass forwarding if the message is a bot command starting with '.'
-                if (!body.trim().startsWith('.')) {
-                    // Compare identities by pure numeric digits to be immune to JID suffix variations (@c.us vs @s.whatsapp.net)
-                    const isSender = cleanJid(sender) === cleanJid(activeSession.senderJid);
-                    const targetJid = isSender 
-                        ? activeSession.receiverJid 
-                        : activeSession.senderJid;
+            if (activeSession) {
+                // Confess conversation forwarding ONLY happens in Private Chat (DM with bot)
+                if (!isGroup) {
+                    // Bypass forwarding if the message is a bot command starting with '.'
+                    if (!body.trim().startsWith('.')) {
+                        const isSender = cleanJid(sender) === cleanJid(activeSession.senderJid);
+                        const targetJid = isSender 
+                            ? activeSession.receiverJid 
+                            : activeSession.senderJid;
 
-                    const forwardText = `💬 *Balasan*\n\n${body.trim()}`;
-                    await sendConfessMessage(sock, targetJid, forwardText);
+                        const msgContent = m.message;
+                        let forwarded = false;
 
-                    // Reset/extend the 1-hour inactivity timeout
-                    updateSessionActivity(sock, activeSession);
-                    return; // Intercept and halt further processing
+                        // Support media forwarding (images, videos, audio/voice notes, stickers, documents) as well as text!
+                        if (msgContent?.imageMessage || msgContent?.videoMessage || msgContent?.audioMessage || msgContent?.stickerMessage || msgContent?.documentMessage) {
+                            try {
+                                const { downloadMediaMessage } = await import('baileys');
+                                const P = (await import('pino')).default;
+
+                                const buffer = await downloadMediaMessage(
+                                    m,
+                                    'buffer',
+                                    {},
+                                    { logger: P({ level: 'silent' }) }
+                                ).catch(() => null);
+
+                                if (buffer) {
+                                    const textCaption = body.trim() ? `💬 *Balasan*\n\n${body.trim()}` : `💬 *Balasan Media*`;
+                                    if (msgContent.imageMessage) {
+                                        await sock.sendMessage(targetJid, { image: buffer, caption: textCaption });
+                                    } else if (msgContent.videoMessage) {
+                                        await sock.sendMessage(targetJid, { video: buffer, caption: textCaption });
+                                    } else if (msgContent.audioMessage) {
+                                        await sock.sendMessage(targetJid, {
+                                            audio: buffer,
+                                            ptt: msgContent.audioMessage.ptt || false,
+                                            mimetype: msgContent.audioMessage.mimetype || 'audio/ogg; codecs=opus'
+                                        });
+                                    } else if (msgContent.stickerMessage) {
+                                        await sock.sendMessage(targetJid, { sticker: buffer });
+                                    } else if (msgContent.documentMessage) {
+                                        await sock.sendMessage(targetJid, {
+                                            document: buffer,
+                                            mimetype: msgContent.documentMessage.mimetype || 'application/octet-stream',
+                                            fileName: msgContent.documentMessage.fileName || 'file'
+                                        });
+                                    }
+                                    forwarded = true;
+                                }
+                            } catch (mediaErr) {
+                                console.error('[Confess Media Router] Error forwarding media:', mediaErr);
+                            }
+                        }
+
+                        // If not media or media download failed, forward text if body exists
+                        if (!forwarded && body.trim()) {
+                            const forwardText = `💬 *Balasan*\n\n${body.trim()}`;
+                            await sendConfessMessage(sock, targetJid, forwardText);
+                            forwarded = true;
+                        }
+
+                        if (forwarded) {
+                            // React with a discreet checkmark to indicate sent
+                            await sock.sendMessage(from, { react: { text: '✉️', key: m.key } }).catch(() => {});
+                            // Reset/extend the 1-hour inactivity timeout
+                            updateSessionActivity(sock, activeSession);
+                            return; // Intercept and halt further processing
+                        }
+                    }
                 }
-            } else if (!activeSession && body.trim() && !body.trim().startsWith('.')) {
-                // Check if the user is replying/quoting a confess-related message but session has expired/invalid
+            } else if (!activeSession && !isGroup && body.trim() && !body.trim().startsWith('.')) {
+                // Check if the user is replying/quoting a confess-related message in DM but session has expired
                 const quotedContext = m.message?.extendedTextMessage?.contextInfo;
                 const quotedText = quotedContext?.quotedMessage?.conversation || 
                                    quotedContext?.quotedMessage?.extendedTextMessage?.text || 

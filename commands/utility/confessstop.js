@@ -12,7 +12,8 @@ export default {
     },
     run: async (sock, msg, args) => {
         const from = msg.key.remoteJid;
-        const senderJid = msg.key.participant || msg.participant || from;
+        const isGroup = from.endsWith('@g.us');
+        const senderJid = isGroup ? (msg.key.participant || msg.participant || from) : from;
 
         // Check if this user is in an active session
         const session = findSessionByUser(senderJid);

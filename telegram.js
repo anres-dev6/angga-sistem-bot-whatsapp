@@ -302,7 +302,11 @@ if (!token) {
                 const { findSessionByUser, updateSessionActivity, sendConfessMessage } = await import('./Lib/confess_manager.js');
                 const activeSession = findSessionByUser(senderJid);
                 if (activeSession) {
-                    const targetJid = activeSession.receiverJid;
+                    const { cleanJid } = await import('./Lib/confess_manager.js');
+                    const isSender = cleanJid(senderJid) === cleanJid(activeSession.senderJid);
+                    const targetJid = isSender 
+                        ? activeSession.receiverJid 
+                        : activeSession.senderJid;
                     const forwardText = `💬 *Balasan*\n\n${body}`;
 
                     if (global.waSock) {

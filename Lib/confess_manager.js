@@ -76,14 +76,6 @@ export function normalizeJid(num) {
     }
     
     let clean = cleanStr;
-    if (clean.endsWith('@lid')) {
-        let userPart = clean.split('@')[0];
-        if (userPart.includes(':')) {
-            userPart = userPart.split(':')[0];
-        }
-        userPart = userPart.replace(/[^0-9]/g, '');
-        return userPart + '@lid';
-    }
     if (clean.includes('@')) {
         clean = clean.split('@')[0];
     }
@@ -101,22 +93,25 @@ export function normalizeJid(num) {
 }
 
 /**
- * Extract clean phone number or Telegram chat ID from JID
+ * Extract clean phone number or Telegram chat ID from JID (normalizes 08xxx to 628xxx)
  */
 export function cleanJid(jid) {
     if (!jid) return '';
-    const cleanStr = jid.toString().trim();
+    let cleanStr = jid.toString().trim();
     if (cleanStr.endsWith('@telegram.net')) {
         return cleanStr.split('@')[0];
     }
-    let clean = cleanStr;
-    if (clean.includes('@')) {
-        clean = clean.split('@')[0];
+    if (cleanStr.includes('@')) {
+        cleanStr = cleanStr.split('@')[0];
     }
-    if (clean.includes(':')) {
-        clean = clean.split(':')[0];
+    if (cleanStr.includes(':')) {
+        cleanStr = cleanStr.split(':')[0];
     }
-    return clean.replace(/[^0-9\-]/g, ''); // Keep numbers and minus signs
+    let digits = cleanStr.replace(/[^0-9]/g, '');
+    if (digits.startsWith('0')) {
+        digits = '62' + digits.slice(1);
+    }
+    return digits;
 }
 
 /**
@@ -125,6 +120,8 @@ export function cleanJid(jid) {
 export function findSessionByUser(jid) {
     if (!jid) return null;
     const targetClean = cleanJid(jid);
+    if (!targetClean) return null;
+
     for (const session of sessions.values()) {
         if (cleanJid(session.senderJid) === targetClean || cleanJid(session.receiverJid) === targetClean) {
             return session;
@@ -150,8 +147,9 @@ export async function sendConfessMessage(sock, jid, text) {
             console.error("[Confess Telegram Router] global.tgBot is not initialized.");
         }
     } else {
+        const target = cleanStr.includes('@') ? cleanStr : normalizeJid(cleanStr);
         if (sock) {
-            await sock.sendMessage(cleanStr, { text });
+            await sock.sendMessage(target, { text });
         } else {
             console.error("[Confess WhatsApp Router] sock is undefined.");
         }
@@ -162,11 +160,27 @@ export async function sendConfessMessage(sock, jid, text) {
  * Creates and starts a new anonymous confession session
  */
 export async function createConfessSession(sock, senderJid, senderName, rawReceiver, firstMessage) {
-    const normalizedSender = normalizeJid(senderJid);
-    const receiverJid = normalizeJid(rawReceiver);
+    let normalizedSender = normalizeJid(senderJid);
+    let receiverJid = normalizeJid(rawReceiver);
+
+    // Verify WhatsApp receiver via onWhatsApp if available
+    if (sock && typeof sock.onWhatsApp === 'function' && !rawReceiver.toString().endsWith('@telegram.net')) {
+        try {
+            const cleanNum = cleanJid(rawReceiver);
+            const [onWa] = await sock.onWhatsApp(cleanNum);
+            if (onWa && onWa.exists) {
+                receiverJid = onWa.jid; // Guaranteed valid WhatsApp JID (e.g. 628xxx@s.whatsapp.net)
+            } else {
+                throw new Error(`Nomor tujuan (+${cleanNum}) tidak terdaftar di WhatsApp.`);
+            }
+        } catch (e) {
+            if (e.message.includes('tidak terdaftar')) throw e;
+            console.error('[Confess] onWhatsApp check skipped:', e.message);
+        }
+    }
 
     // Safeguard check: sender cannot confess to themselves
-    if (normalizedSender === receiverJid) {
+    if (cleanJid(normalizedSender) === cleanJid(receiverJid)) {
         throw new Error("Anda tidak bisa memulai sesi confess ke nomor Anda sendiri.");
     }
 
@@ -202,7 +216,7 @@ export async function createConfessSession(sock, senderJid, senderName, rawRecei
                           `*Kepada :*\nPenerima\n\n` +
                           `*Pesan :*\n${firstMessage}\n\n` +
                           `━━━━━━━━━━━━\n` +
-                          `📩 _Balas pesan ini langsung untuk membalas secara rahasia._\n` +
+                          `📩 _Balas pesan ini langsung di obrolan pribadi ini untuk membalas secara rahasia._\n` +
                           `⏳ _Sesi akan berakhir otomatis jika tidak ada aktivitas selama 1 jam._\n` +
                           `🔒 _Nomor telepon dirahasiakan oleh sistem._\n` +
                           `━━━━━━━━━━━━`;
@@ -212,7 +226,7 @@ export async function createConfessSession(sock, senderJid, senderName, rawRecei
     // Initialize 1-hour timeout trigger
     scheduleTimeout(sock, session);
 
-    console.log(chalk.green(`[Confess] Session successfully created! ID: ${sessionId}, Sender: ${senderJid}, Receiver: ${receiverJid}`));
+    console.log(chalk.green(`[Confess] Session successfully created! ID: ${sessionId}, Sender: ${normalizedSender}, Receiver: ${receiverJid}`));
     return session;
 }
 
