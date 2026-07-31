@@ -377,9 +377,10 @@ export default async function handleMessage(sock, msg) {
         console.log('[Handler] isGroup:', isGroup);
 
         const { isSelfModeEnabled } = await import('../Lib/self_manager.js');
-        // If self mode is enabled (globally or for this group), only owner messages are processed
-        if (!sock.isUserbot && isSelfModeEnabled(from) && !isOwner) {
-            console.log(`[Handler] Self mode active for ${from} - ignoring non-owner message`);
+        // Self mode only restricts non-owners in GROUP chats.
+        // Private chat (DM) is ALWAYS accessible for all users regardless of self mode.
+        if (!sock.isUserbot && isGroup && isSelfModeEnabled(from) && !isOwner) {
+            console.log(`[Handler] Self mode active for group ${from} - ignoring non-owner message`);
             return;
         }
 

@@ -166,16 +166,23 @@ export async function createConfessSession(sock, senderJid, senderName, rawRecei
     // Verify WhatsApp receiver via onWhatsApp if available
     if (sock && typeof sock.onWhatsApp === 'function' && !rawReceiver.toString().endsWith('@telegram.net')) {
         try {
-            const cleanNum = cleanJid(rawReceiver);
-            const [onWa] = await sock.onWhatsApp(cleanNum);
-            if (onWa && onWa.exists) {
+            // Remove '+' prefix if present, only pass digits
+            const cleanNum = cleanJid(rawReceiver).replace(/\+/g, '');
+            const result = await sock.onWhatsApp(cleanNum);
+            const onWa = Array.isArray(result) ? result[0] : result;
+            if (onWa && onWa.exists && onWa.jid) {
                 receiverJid = onWa.jid; // Guaranteed valid WhatsApp JID (e.g. 628xxx@s.whatsapp.net)
-            } else {
+                console.log(`[Confess] Receiver verified via onWhatsApp: ${receiverJid}`);
+            } else if (onWa && !onWa.exists) {
                 throw new Error(`Nomor tujuan (+${cleanNum}) tidak terdaftar di WhatsApp.`);
+            } else {
+                // onWhatsApp returned empty/null - proceed with normalizeJid fallback
+                console.log(`[Confess] onWhatsApp returned no result, using normalizeJid fallback for: ${cleanNum}`);
             }
         } catch (e) {
             if (e.message.includes('tidak terdaftar')) throw e;
-            console.error('[Confess] onWhatsApp check skipped:', e.message);
+            // Network/timeout error - proceed with fallback
+            console.error('[Confess] onWhatsApp check skipped (network error):', e.message);
         }
     }
 
