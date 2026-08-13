@@ -1,10 +1,10 @@
-import { sendOneWayConfess, cleanJid } from '../../Lib/confess_manager.js';
+import { createConfessSession, cleanJid } from '../../Lib/confess_manager.js';
 
 export default {
-    name: 'confess',
-    aliases: ['confess'],
+    name: 'menfess',
+    aliases: ['menfess'],
     tags: ['tools'],
-    description: 'Kirim pesan rahasia anonim 1 arah ke nomor tujuan melalui bot',
+    description: 'Kirim pesan rahasia anonim interaktif (2 arah) ke nomor tujuan melalui bot',
     access: {
         owner: false,
         group: false,
@@ -17,7 +17,7 @@ export default {
         // Private chat requirement safeguard
         if (isGroup) {
             return sock.sendMessage(from, {
-                text: "❌ Fitur Confess hanya dapat digunakan di Private Chat (Chat Pribadi dengan Bot)."
+                text: "❌ Fitur Menfess hanya dapat digunakan di Private Chat (Chat Pribadi dengan Bot)."
             }, { quoted: msg });
         }
 
@@ -25,7 +25,7 @@ export default {
 
         if (!input || !input.includes('|')) {
             return sock.sendMessage(from, {
-                text: "❌ Perintah tidak lengkap!\n\n💡 *Format:* \n• `.confess (nomor) | (pesan)`\n• `.confess (nama pengirim) | (nomor) | (pesan)`\n\n💡 *Contoh:* \n• `.confess 089765789087 | Halo, semoga harimu menyenangkan.`"
+                text: "❌ Perintah tidak lengkap!\n\n💡 *Format:* \n• `.menfess (nomor) | (pesan)`\n• `.menfess (nama pengirim) | (nomor) | (pesan)`\n\n💡 *Contoh:* \n• `.menfess 089765789087 | Halo, mau ngobrol secara rahasia?`"
             }, { quoted: msg });
         }
 
@@ -45,22 +45,22 @@ export default {
 
         if (!receiverNum || !firstMsg) {
             return sock.sendMessage(from, {
-                text: "❌ Nomor tujuan dan isi pesan tidak boleh kosong!\n\n💡 *Format:* `.confess (nomor) | (pesan)`"
+                text: "❌ Nomor tujuan dan isi pesan tidak boleh kosong!\n\n💡 *Format:* `.menfess (nomor) | (pesan)`"
             }, { quoted: msg });
         }
 
         try {
             const senderJid = from;
-            const result = await sendOneWayConfess(sock, senderJid, senderName, receiverNum, firstMsg);
-            const cleanTarget = cleanJid(result.receiverJid);
+            const session = await createConfessSession(sock, senderJid, senderName, receiverNum, firstMsg);
+            const cleanTarget = cleanJid(session.receiverJid);
 
             await sock.sendMessage(from, {
-                text: `🔒 *Pesan Confess Terkirim!*\n\n💌 Pesan rahasia Anda telah terkirim secara anonim ke nomor *+${cleanTarget}*.\n\nℹ️ *Catatan:* Fitur Confess bersifat *satu arah*. Jika Anda ingin pesan yang dapat dibalas oleh target, gunakan perintah *.menfess*.`
+                text: `🔒 *Sesi Menfess Berhasil Dibuat!*\n\n💌 Pesan rahasia Anda telah terkirim secara anonim ke nomor *+${cleanTarget}*.\n\n📱 *Interaksi 2 Arah:* Target dapat membalas pesan Anda. Cukup ketik pesan di chat pribadi bot ini untuk saling berkirim balasan secara anonim.\n\n💡 *Tips:* Ketik *.menfessstop* atau *.confessstop* kapan saja untuk mengakhiri sesi obrolan secara manual.`
             }, { quoted: msg });
 
         } catch (error) {
             return sock.sendMessage(from, {
-                text: `❌ Gagal mengirim pesan confess: ${error.message}`
+                text: `❌ Gagal membuat sesi menfess: ${error.message}`
             }, { quoted: msg });
         }
     }

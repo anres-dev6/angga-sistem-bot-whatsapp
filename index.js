@@ -23,6 +23,8 @@ import "./Lib/antidelete_manager.js"; // Initialize AntiDelete state on startup
 let isPairing = false;
 let isShuttingDown = false;
 let consecutive401Count = 0;
+let reconnectCount = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 // Handle process shutdown signals gracefully to avoid auth conflict/deletion
 const handleShutdown = (signal) => {
@@ -107,6 +109,7 @@ async function startBot() {
             console.log(chalk.green("Bot berhasil connect ✔️"));
             isPairing = false; // Reset flag
             consecutive401Count = 0; // Reset 401 counter
+            reconnectCount = 0; // Reset reconnection retry counter on successful connection
             startReminderScheduler(sock);
             
             // Load and initialize active confess sessions from disk
@@ -143,10 +146,14 @@ async function startBot() {
             console.error(chalk.red(`⚠️  Connection Closed (Status Code: ${statusCode}):`), errorReason);
 
             if (shouldReconnect) {
-                // If connection replaced (conflict), wait 10 seconds to let the other instance stop.
-                const delay = statusCode === DisconnectReason.connectionReplaced ? 10000 : 3000;
-                console.log(chalk.red(`Koneksi terputus. Mencoba menghubungkan kembali dalam ${delay/1000} detik...`));
-                setTimeout(() => startBot(), delay);
+                if (reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectCount++;
+                    const delay = statusCode === DisconnectReason.connectionReplaced ? 10000 : 3000;
+                    console.log(chalk.yellow(`[Connection] Koneksi terputus. Mencoba menyambung kembali (${reconnectCount}/${MAX_RECONNECT_ATTEMPTS}) dalam ${delay/1000} detik...`));
+                    setTimeout(() => startBot(), delay);
+                } else {
+                    console.log(chalk.red(`\n❌ Bot terputus dan telah mencapai batas maksimal (${MAX_RECONNECT_ATTEMPTS}x) percobaan penyambungan ulang. Percobaan dihentikan.`));
+                }
             } else {
                 console.log(chalk.red(`\n❌ Sesi terkonfirmasi telah dikeluarkan (Logged Out) secara permanen.`));
                 

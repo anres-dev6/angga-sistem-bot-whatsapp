@@ -4,7 +4,7 @@ import chalk from 'chalk';
 
 const SESSIONS_FILE = path.join(process.cwd(), 'data', 'confess_sessions.json');
 
-// In-memory sessions store
+// In-memory sessions store for 2-way Menfess chats
 export let sessions = new Map();
 
 // 1 hour in milliseconds
@@ -115,7 +115,7 @@ export function cleanJid(jid) {
 }
 
 /**
- * Check if a JID is currently participating in any active confession session
+ * Check if a JID is currently participating in any active menfess session
  */
 export function findSessionByUser(jid) {
     if (!jid) return null;
@@ -157,57 +157,86 @@ export async function sendConfessMessage(sock, jid, text) {
 }
 
 /**
- * Creates and starts a new anonymous confession session
+ * Helper to verify WhatsApp receiver via onWhatsApp
  */
-export async function createConfessSession(sock, senderJid, senderName, rawReceiver, firstMessage) {
-    let normalizedSender = normalizeJid(senderJid);
+async function verifyReceiverJid(sock, rawReceiver) {
     let receiverJid = normalizeJid(rawReceiver);
 
-    // Verify WhatsApp receiver via onWhatsApp if available
     if (sock && typeof sock.onWhatsApp === 'function' && !rawReceiver.toString().endsWith('@telegram.net')) {
         try {
-            // Remove '+' prefix if present, only pass digits
             const cleanNum = cleanJid(rawReceiver).replace(/\+/g, '');
             const result = await sock.onWhatsApp(cleanNum);
             const onWa = Array.isArray(result) ? result[0] : result;
             if (onWa && onWa.exists && onWa.jid) {
-                receiverJid = onWa.jid; // Guaranteed valid WhatsApp JID (e.g. 628xxx@s.whatsapp.net)
+                receiverJid = onWa.jid;
                 console.log(`[Confess] Receiver verified via onWhatsApp: ${receiverJid}`);
             } else if (onWa && !onWa.exists) {
                 throw new Error(`Nomor tujuan (+${cleanNum}) tidak terdaftar di WhatsApp.`);
             } else {
-                // onWhatsApp returned empty/null - proceed with normalizeJid fallback
                 console.log(`[Confess] onWhatsApp returned no result, using normalizeJid fallback for: ${cleanNum}`);
             }
         } catch (e) {
             if (e.message.includes('tidak terdaftar')) throw e;
-            // Network/timeout error - proceed with fallback
             console.error('[Confess] onWhatsApp check skipped (network error):', e.message);
         }
     }
+    return receiverJid;
+}
+
+/**
+ * Fitur 1: Send one-way anonymous message (Confess)
+ */
+export async function sendOneWayConfess(sock, senderJid, senderName, rawReceiver, message) {
+    const normalizedSender = normalizeJid(senderJid);
+    const receiverJid = await verifyReceiverJid(sock, rawReceiver);
 
     // Safeguard check: sender cannot confess to themselves
     if (cleanJid(normalizedSender) === cleanJid(receiverJid)) {
-        throw new Error("Anda tidak bisa memulai sesi confess ke nomor Anda sendiri.");
+        throw new Error("Anda tidak bisa mengirim pesan confess ke nomor Anda sendiri.");
     }
 
-    // Safeguard check: sender or receiver already busy
+    const confessText = `💌 *PESAN CONFESS (ANONIM)*\n\n` +
+                        `*Dari :*\n${senderName || 'Pengagum Rahasia'}\n\n` +
+                        `*Kepada :*\nPenerima\n\n` +
+                        `*Pesan :*\n${message}\n\n` +
+                        `━━━━━━━━━━━━\n` +
+                        `🔒 _Pesan ini dikirim secara rahasia melalui bot (Satu Arah)._\n` +
+                        `━━━━━━━━━━━━`;
+
+    await sendConfessMessage(sock, receiverJid, confessText);
+    console.log(chalk.green(`[Confess] One-way message sent from ${normalizedSender} to ${receiverJid}`));
+    return { senderJid: normalizedSender, receiverJid };
+}
+
+/**
+ * Fitur 2: Creates and starts a 2-way interactive anonymous session (Menfess)
+ */
+export async function createConfessSession(sock, senderJid, senderName, rawReceiver, firstMessage) {
+    const normalizedSender = normalizeJid(senderJid);
+    const receiverJid = await verifyReceiverJid(sock, rawReceiver);
+
+    // Safeguard check: sender cannot send to themselves
+    if (cleanJid(normalizedSender) === cleanJid(receiverJid)) {
+        throw new Error("Anda tidak bisa memulai sesi menfess ke nomor Anda sendiri.");
+    }
+
+    // Safeguard check: sender or receiver already busy in a session
     const senderActive = findSessionByUser(normalizedSender);
     if (senderActive) {
-        throw new Error("Anda sedang berada dalam sesi confess aktif. Tutup sesi saat ini dengan *.confessstop* sebelum memulai sesi baru.");
+        throw new Error("Anda sedang berada dalam sesi menfess/confess aktif. Tutup sesi saat ini dengan *.menfessstop* sebelum memulai sesi baru.");
     }
 
     const receiverActive = findSessionByUser(receiverJid);
     if (receiverActive) {
-        throw new Error("Nomor tujuan sedang berada dalam sesi confess lain saat ini. Silakan coba lagi nanti.");
+        throw new Error("Nomor tujuan sedang berada dalam sesi menfess/confess lain saat ini. Silakan coba lagi nanti.");
     }
 
-    const sessionId = `confess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const sessionId = `menfess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const session = {
         id: sessionId,
         senderJid: normalizedSender,
-        senderName,
+        senderName: senderName || 'Pengagum Rahasia',
         receiverJid,
         lastActivity: Date.now(),
         timeoutTimer: null
@@ -217,15 +246,15 @@ export async function createConfessSession(sock, senderJid, senderName, rawRecei
     sessions.set(sessionId, session);
     saveSessionsToDisk();
 
-    // Send first message to the receiver anonymously
-    const introMessage = `💌 *PESAN BARU*\n\n` +
-                          `*Nama Pengirim :*\n${senderName}\n\n` +
+    // Send first message to the receiver anonymously with reply capability notice
+    const introMessage = `💌 *PESAN MENFESS BARU*\n\n` +
+                          `*Dari :*\n${session.senderName}\n\n` +
                           `*Kepada :*\nPenerima\n\n` +
                           `*Pesan :*\n${firstMessage}\n\n` +
                           `━━━━━━━━━━━━\n` +
-                          `📩 _Balas pesan ini langsung di obrolan pribadi ini untuk membalas secara rahasia._\n` +
+                          `📩 _Balas pesan ini langsung di chat pribadi ini untuk membalas ke pengirim secara rahasia._\n` +
                           `⏳ _Sesi akan berakhir otomatis jika tidak ada aktivitas selama 1 jam._\n` +
-                          `🔒 _Nomor telepon dirahasiakan oleh sistem._\n` +
+                          `🔒 _Ketik *.menfessstop* atau *.confessstop* untuk mengakhiri sesi._\n` +
                           `━━━━━━━━━━━━`;
 
     await sendConfessMessage(sock, receiverJid, introMessage);
@@ -233,7 +262,7 @@ export async function createConfessSession(sock, senderJid, senderName, rawRecei
     // Initialize 1-hour timeout trigger
     scheduleTimeout(sock, session);
 
-    console.log(chalk.green(`[Confess] Session successfully created! ID: ${sessionId}, Sender: ${normalizedSender}, Receiver: ${receiverJid}`));
+    console.log(chalk.green(`[Menfess] Session successfully created! ID: ${sessionId}, Sender: ${normalizedSender}, Receiver: ${receiverJid}`));
     return session;
 }
 
@@ -251,7 +280,7 @@ export function updateSessionActivity(sock, session) {
     // Re-schedule the 1-hour timer
     scheduleTimeout(sock, session);
     saveSessionsToDisk();
-    console.log(`[Confess] Timer extended for session ID: ${session.id}`);
+    console.log(`[Confess/Menfess] Timer extended for session ID: ${session.id}`);
 }
 
 /**
@@ -260,7 +289,7 @@ export function updateSessionActivity(sock, session) {
 function scheduleTimeout(sock, session, customTime = null) {
     const timeLimit = customTime !== null ? customTime : SESSION_TIMEOUT_MS;
     session.timeoutTimer = setTimeout(async () => {
-        console.log(chalk.yellow(`[Confess] Session timeout reached for ID: ${session.id}. Terminating...`));
+        console.log(chalk.yellow(`[Confess/Menfess] Session timeout reached for ID: ${session.id}. Terminating...`));
         await terminateConfessSession(sock, session, false);
     }, timeLimit);
 }
@@ -281,36 +310,33 @@ export async function terminateConfessSession(sock, session, manualStop = false)
 
     // 3. Dispatch session termination cards to both parties
     const endMsg = manualStop 
-        ? `🔒 *Sesi Confess telah ditutup secara manual oleh salah satu pihak.*` 
-        : `⏳ *SESI BERAKHIR*\n\nTidak ada aktivitas selama 1 jam.\n\nSesi Confess telah ditutup secara otomatis.`;
+        ? `🔒 *Sesi Menfess/Confess telah ditutup secara manual oleh salah satu pihak.*` 
+        : `⏳ *SESI BERAKHIR*\n\nTidak ada aktivitas selama 1 jam.\n\nSesi Menfess/Confess telah ditutup secara otomatis.`;
 
     await sendConfessMessage(sock, session.senderJid, endMsg);
     await sendConfessMessage(sock, session.receiverJid, endMsg);
 
-    // 4. Secure Cleanups: Clear and delete chat data relating to the receiver
-    // (Only applies to WhatsApp receiver)
+    // 4. Secure Cleanups: Clear and delete chat data relating to the receiver (WhatsApp)
     if (!session.receiverJid.endsWith('@telegram.net') && sock) {
         try {
-            console.log(`[Confess] Purging receiver chat history and JID trace for: ${session.receiverJid}`);
+            console.log(`[Confess/Menfess] Purging receiver chat history for: ${session.receiverJid}`);
             
-            // Clear chat content inside conversation database
             await sock.chatModify({
                 clear: {
                     keepAsterished: false
                 }
             }, session.receiverJid);
 
-            // Delete the chat list entry completely from bot's database/interface
             await sock.chatModify({
                 delete: true,
                 lastMessages: []
             }, session.receiverJid);
 
-            console.log(`[Confess] Chat history successfully purged from bot storage.`);
+            console.log(`[Confess/Menfess] Chat history successfully purged from bot storage.`);
         } catch (e) {
-            console.log(`[Confess] Note: WhatsApp server chat clear/delete skipped or resolved gracefully: ${e.message}`);
+            console.log(`[Confess/Menfess] Note: WhatsApp server chat clear/delete skipped or resolved gracefully: ${e.message}`);
         }
     }
 
-    console.log(chalk.green(`[Confess] Session ID: ${session.id} completely closed, and routing data wiped.`));
+    console.log(chalk.green(`[Confess/Menfess] Session ID: ${session.id} completely closed, and routing data wiped.`));
 }
