@@ -263,17 +263,25 @@ async function startBot() {
     // Pesan masuk → handler
     sock.ev.on("messages.upsert", async (msg) => {
         try {
-            const m = msg.messages[0];
-            if (m && m.message && !m.key.fromMe) {
-                const { cacheMessage, handleDelete } = await import('./Lib/userbot_manager.js');
-                await cacheMessage(sock, m);
-                await handleDelete(sock, m);
+            const m = msg?.messages?.[0];
+            if (!m || !m.message) return;
 
-                // Anti-Delete: cache pesan masuk & deteksi revoke (kirim ke nomor bot sendiri)
-                const { adCacheMessage, adHandleRevoke } = await import('./Lib/antidelete_manager.js');
-                adCacheMessage(sock, m);
-                await adHandleRevoke(sock, m); // default target = 'self'
+            // Non-blocking background caching & anti-delete handling
+            if (!m.key.fromMe) {
+                try {
+                    const { cacheMessage, handleDelete } = await import('./Lib/userbot_manager.js');
+                    await cacheMessage(sock, m).catch(() => {});
+                    await handleDelete(sock, m).catch(() => {});
+                } catch (e) {}
+
+                try {
+                    const { adCacheMessage, adHandleRevoke } = await import('./Lib/antidelete_manager.js');
+                    adCacheMessage(sock, m);
+                    await adHandleRevoke(sock, m).catch(() => {});
+                } catch (e) {}
             }
+
+            // Always execute main message handler
             await handleMessage(sock, msg);
         } catch (err) {
             console.error("Handler Error:", err);
