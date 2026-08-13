@@ -1,7 +1,7 @@
 export default {
     name: 'add',
     aliases: ['add', 'addmember'],
-    tags: ['grup'],
+    tags: ['admin', 'grup'],
     description: 'Tambah member ke grup',
     access: {
         owner: false,

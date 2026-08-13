@@ -3,7 +3,7 @@ import { loadOwners } from '../../utils/security.js';
 export default {
     name: 'kick',
     aliases: ['kick', 'remove'],
-    tags: ['grup'],
+    tags: ['admin', 'grup'],
     access: {
         owner: false,
         group: true,

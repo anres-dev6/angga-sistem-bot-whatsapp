@@ -1,7 +1,7 @@
 export default {
     name: 'tagall',
     aliases: ['tagall', 'all', 'everyone', 'tag'],
-    tags: ['grup'],
+    tags: ['admin', 'grup'],
     access: {
         owner: false,
         group: true,

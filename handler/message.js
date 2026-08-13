@@ -34,21 +34,25 @@ export default async function handleMessage(sock, msg) {
             await commandsLoadedPromise;
         }
 
-        // Unwrap ephemeral and view-once message wrappers if they exist
-        if (m.message.ephemeralMessage) {
-            m.message = m.message.ephemeralMessage.message;
-        }
-        if (m.message?.viewOnceMessage) {
-            m.message = m.message.viewOnceMessage.message;
-        }
-        if (m.message?.viewOnceMessageV2) {
-            m.message = m.message.viewOnceMessageV2.message;
-        }
-        if (m.message?.viewOnceMessageV2Extension) {
-            m.message = m.message.viewOnceMessageV2Extension.message;
-        }
-        if (m.message?.documentWithCaptionMessage) {
-            m.message = m.message.documentWithCaptionMessage.message;
+        // Recursive unwrapping of message wrappers (ephemeral, viewOnce, document, edited)
+        while (m?.message) {
+            if (m.message.ephemeralMessage) {
+                m.message = m.message.ephemeralMessage.message;
+            } else if (m.message.viewOnceMessage) {
+                m.message = m.message.viewOnceMessage.message;
+            } else if (m.message.viewOnceMessageV2) {
+                m.message = m.message.viewOnceMessageV2.message;
+            } else if (m.message.viewOnceMessageV2Extension) {
+                m.message = m.message.viewOnceMessageV2Extension.message;
+            } else if (m.message.documentWithCaptionMessage) {
+                m.message = m.message.documentWithCaptionMessage.message;
+            } else if (m.message.editedMessage) {
+                const edited = m.message.editedMessage?.message?.protocolMessage?.editedMessage;
+                if (edited) m.message = edited;
+                else break;
+            } else {
+                break;
+            }
         }
 
         // Handle broadcast/status? Usually we skip those, but simple check first
@@ -69,16 +73,23 @@ export default async function handleMessage(sock, msg) {
         const owners = loadOwners();
         const isOwner = owners.includes(senderNumber) || !!m.key.fromMe;
 
+        const body = (
+            m.message?.conversation ||
+            m.message?.imageMessage?.caption ||
+            m.message?.videoMessage?.caption ||
+            m.message?.documentMessage?.caption ||
+            m.message?.extendedTextMessage?.text ||
+            m.message?.buttonsResponseMessage?.selectedButtonId ||
+            m.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+            m.message?.templateButtonReplyMessage?.selectedId ||
+            m.message?.interactiveResponseMessage?.body?.text ||
+            ""
+        );
+
         // CRITICAL: Ignore messages from bot itself (double protection)
         // Except if it's a userbot or if it's the owner and the message is a command starting with '.'
         if (m.key.fromMe) {
-            const tempBody = (
-                m.message?.conversation ||
-                m.message?.imageMessage?.caption ||
-                m.message?.videoMessage?.caption ||
-                m.message?.extendedTextMessage?.text ||
-                ""
-            ).trim();
+            const tempBody = body.trim();
             const isButtonResponse = !!m.message?.listResponseMessage || 
                                      !!m.message?.buttonsResponseMessage || 
                                      !!m.message?.interactiveResponseMessage ||
@@ -89,13 +100,6 @@ export default async function handleMessage(sock, msg) {
                 return;
             }
         }
-
-        const body =
-            m.message.conversation ||
-            m.message.imageMessage?.caption ||
-            m.message.videoMessage?.caption ||
-            m.message.extendedTextMessage?.text ||
-            "";
 
         // Check if sender is blacklisted
         const isBlocked = isBlacklisted(senderNumber) && !isOwner;
@@ -2391,21 +2395,28 @@ export default async function handleMessage(sock, msg) {
         // ============================================
         //        HANDLE COMMAND
         // ============================================
-        if (!body.startsWith(".")) return;
+        const cleanBody = body.trim();
+        if (!cleanBody.startsWith(".")) return;
 
-        // Check if sender is blacklisted (already handled early)
-
-        const cmdName = body.slice(1).trim().split(" ")[0].toLowerCase();
-        const args = body.trim().split(" ").slice(1);
+        const cmdName = cleanBody.slice(1).trim().split(/\s+/)[0].toLowerCase();
+        const args = cleanBody.split(/\s+/).filter(Boolean).slice(1);
         const text = args.join(" ");
+
+        let isOwnerForContext = isOwner;
 
         const command = getCommand(cmdName);
 
-        if (!command) return;
+        if (!command) {
+            // Send feedback in Private Chat or when explicitly triggered by owner
+            if (!isGroup || isOwnerForContext) {
+                return sock.sendMessage(from, {
+                    text: `❌ Perintah *${cleanBody.split(/\s+/)[0]}* tidak ditemukan.\n\n💡 Ketik *.menu* untuk melihat daftar perintah yang tersedia.`
+                }, { quoted: m });
+            }
+            return;
+        }
 
         // --- Permissions Check ---
-        let isOwnerForContext = isOwner;
-
         if (sock.isUserbot) {
             const isUserbotSelf = (senderNumber === sock.userbotNumber);
 
@@ -2480,16 +2491,9 @@ export default async function handleMessage(sock, msg) {
             });
         } catch (cmdErr) {
             console.error(`[Command] Error running '${cmdName}':`, cmdErr);
-            // Send minimal error info to chat for debugging (owner only)
-            try {
-                const owners = loadOwners();
-                const senderNum = sender.split('@')[0].replace(/\D/g, '');
-                if (owners.includes(senderNum)) {
-                    await sock.sendMessage(from, { text: `⚠️ Error on command '${cmdName}': ${cmdErr.message}` }, { quoted: m });
-                }
-            } catch (e) {
-                console.error('[Command] Failed to report error to owner:', e);
-            }
+            await sock.sendMessage(from, {
+                text: `❌ Terjadi kesalahan saat menjalankan perintah *.${cmdName}*:\n\n⚠️ ${cmdErr.message}`
+            }, { quoted: m });
         }
 
     } catch (err) {

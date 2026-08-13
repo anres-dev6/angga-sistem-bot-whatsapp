@@ -1,7 +1,7 @@
 export default {
     name: 'demote',
     aliases: ['unadmin', 'copotadmin'],
-    tags: ['admin'],
+    tags: ['admin', 'grup'],
     description: 'Copot status admin member grup',
     access: {
         owner: false,

@@ -1,7 +1,7 @@
 export default {
     name: 'promote',
     aliases: ['admin', 'jadikanadmin'],
-    tags: ['admin'],
+    tags: ['admin', 'grup'],
     description: 'Jadikan member sebagai admin grup',
     access: {
         owner: false,

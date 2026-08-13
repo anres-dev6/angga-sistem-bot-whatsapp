@@ -1,7 +1,7 @@
 export default {
     name: 'del',
     aliases: ['delete', 'hapus'],
-    tags: ['admin'],
+    tags: ['admin', 'grup'],
     description: 'Hapus pesan yang di-reply',
     access: {
         owner: false,
