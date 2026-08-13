@@ -86,8 +86,13 @@ export default async function handleMessage(sock, msg) {
             ""
         );
 
-        // CRITICAL: Ignore messages from bot itself (double protection)
-        // Except if it's a userbot or if it's the owner and the message is a command starting with '.'
+        // ============================================================
+        //  BEST PRACTICE: Handle messages from bot itself (fromMe)
+        // ============================================================
+        // Prevent infinite loops where bot replies to its own sent messages.
+        // Allow execution ONLY if:
+        // 1. It is a command starting with '.' (or button response) AND
+        // 2. It was typed by the Owner or sent via a Userbot instance.
         if (m.key.fromMe) {
             const tempBody = body.trim();
             const isButtonResponse = !!m.message?.listResponseMessage || 
@@ -95,8 +100,12 @@ export default async function handleMessage(sock, msg) {
                                      !!m.message?.interactiveResponseMessage ||
                                      !!m.message?.templateButtonReplyMessage;
             const isCommand = tempBody.startsWith('.') || isButtonResponse;
-            if (!isCommand || (!sock.isUserbot && !isOwner && !isButtonResponse && tempBody.startsWith('.'))) {
-                console.log('[Handler] ⏭️ Skipping - message from bot itself (fromMe)');
+
+            // Allow command execution if userbot or if owner typed a command starting with '.'
+            const allowFromMe = isCommand && (sock.isUserbot || isOwner);
+
+            if (!allowFromMe) {
+                // Silently ignore outgoing bot replies to prevent self-response loops
                 return;
             }
         }
